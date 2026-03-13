@@ -6,10 +6,12 @@ import { HomeScreen } from './src/screens/HomeScreen';
 import { ScanScreen } from './src/screens/ScanScreen';
 import { CompareScreen } from './src/screens/CompareScreen';
 import { RestoreScreen } from './src/screens/RestoreScreen';
+import { CloudProfilesScreen } from './src/screens/CloudProfilesScreen';
 import type { AppTab, ComparisonResult, DeviceProfile, ScanProgress } from './src/types/profile';
 import { buildProfile } from './src/services/profileBuilder';
 import { compareProfiles } from './src/services/profileCompare';
 import { exportProfileJson, importProfileFromPicker } from './src/services/profileIO';
+import { saveProfileToCloud } from './src/services/cloudProfiles';
 import { TabButton } from './src/components/TabButton';
 
 const STORAGE_KEY_PROFILE = 'afterswitch_current_profile';
@@ -22,6 +24,7 @@ export default function App() {
   const [statusMessage, setStatusMessage] = useState('Ready.');
   const [scanning, setScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
+  const [cloudSaving, setCloudSaving] = useState(false);
 
   // Load saved profiles on mount
   useEffect(() => {
@@ -95,6 +98,33 @@ export default function App() {
     }
   }, [currentProfile]);
 
+  const handleSaveToCloud = useCallback(async () => {
+    if (!currentProfile) {
+      setStatusMessage('No profile to save. Scan first.');
+      return;
+    }
+    setCloudSaving(true);
+    try {
+      const profileId = await saveProfileToCloud(currentProfile);
+      setStatusMessage(`Saved to cloud: ${profileId}`);
+    } catch (error) {
+      setStatusMessage(`Cloud save failed: ${String(error)}`);
+    } finally {
+      setCloudSaving(false);
+    }
+  }, [currentProfile]);
+
+  const handleLoadFromCloud = useCallback(() => {
+    setActiveTab('cloud');
+  }, []);
+
+  const handleCloudSelect = useCallback(async (profile: DeviceProfile) => {
+    setImportedProfile(profile);
+    await AsyncStorage.setItem(STORAGE_KEY_IMPORTED, JSON.stringify(profile));
+    setStatusMessage(`Loaded cloud profile from ${profile.device.nickname}.`);
+    setActiveTab('compare');
+  }, []);
+
   const handleImport = useCallback(async () => {
     try {
       const imported = await importProfileFromPicker();
@@ -140,6 +170,11 @@ export default function App() {
             active={activeTab === 'restore'}
             onPress={() => setActiveTab('restore')}
           />
+          <TabButton
+            label="Cloud"
+            active={activeTab === 'cloud'}
+            onPress={() => setActiveTab('cloud')}
+          />
         </View>
 
         <ScrollView contentContainerStyle={styles.content}>
@@ -149,6 +184,9 @@ export default function App() {
               lastScanTime={currentProfile?.exportedAt ?? null}
               onScan={handleScan}
               onImport={handleImport}
+              onSaveToCloud={handleSaveToCloud}
+              onLoadFromCloud={handleLoadFromCloud}
+              cloudSaving={cloudSaving}
             />
           )}
           {activeTab === 'scan' && (
@@ -168,6 +206,12 @@ export default function App() {
             />
           )}
           {activeTab === 'restore' && <RestoreScreen comparison={comparison} />}
+          {activeTab === 'cloud' && (
+            <CloudProfilesScreen
+              onSelect={handleCloudSelect}
+              onBack={() => setActiveTab('home')}
+            />
+          )}
         </ScrollView>
 
         <View style={styles.footer}>

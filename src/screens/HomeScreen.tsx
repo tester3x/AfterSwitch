@@ -11,9 +11,12 @@ type Props = {
   lastScanTime: string | null;
   onScan: () => void;
   onImport: () => void;
+  onSaveToCloud: () => void;
+  onLoadFromCloud: () => void;
+  cloudSaving: boolean;
 };
 
-export function HomeScreen({ profile, lastScanTime, onScan, onImport }: Props) {
+export function HomeScreen({ profile, lastScanTime, onScan, onImport, onSaveToCloud, onLoadFromCloud, cloudSaving }: Props) {
   const hasNative = isNativeModuleAvailable();
 
   return (
@@ -68,15 +71,28 @@ export function HomeScreen({ profile, lastScanTime, onScan, onImport }: Props) {
               label="Apps"
             />
           </View>
+          <View style={styles.cloudRow}>
+            <PrimaryButton
+              label={cloudSaving ? 'Saving...' : 'Save to Cloud'}
+              onPress={onSaveToCloud}
+            />
+          </View>
         </SectionCard>
       )}
 
-      <SectionCard title="Import Saved Profile">
+      <SectionCard title="Restore a Profile">
         <Text style={styles.description}>
-          Import a saved profile to compare and restore your settings — whether
+          Load a saved profile to compare and restore your settings — whether
           you switched phones, did a factory reset, or just need to undo changes.
         </Text>
-        <PrimaryButton label="Import Profile JSON" onPress={onImport} />
+        <View style={styles.buttonRow}>
+          <View style={styles.buttonCol}>
+            <PrimaryButton label="Load from Cloud" onPress={onLoadFromCloud} />
+          </View>
+          <View style={styles.buttonCol}>
+            <PrimaryButton label="Import JSON File" onPress={onImport} />
+          </View>
+        </View>
       </SectionCard>
     </>
   );
@@ -138,5 +154,15 @@ const styles = StyleSheet.create({
     color: '#8090b0',
     fontSize: 11,
     marginTop: 2,
+  },
+  cloudRow: {
+    marginTop: 10,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  buttonCol: {
+    flex: 1,
   },
 });
