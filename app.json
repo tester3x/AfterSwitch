@@ -2,18 +2,30 @@
   "expo": {
     "name": "AfterSwitch",
     "slug": "afterswitch",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "assetBundlePatterns": ["**/*"],
-    "ios": {
-      "supportsTablet": true
-    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "android": {
-      "package": "com.afterswitch.app"
+      "package": "com.afterswitch.app",
+      "permissions": [
+        "android.permission.WRITE_SETTINGS",
+        "android.permission.QUERY_ALL_PACKAGES"
+      ]
     },
     "plugins": [
-      "expo-document-picker"
-    ]
+      "expo-document-picker",
+      [
+        "./plugins/withDeviceSettings"
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "5a38a963-71b9-4cc1-83b4-c85f8a82c725"
+      }
+    },
+    "owner": "testerxxx"
   }
 }

@@ -8,7 +8,14 @@
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["react", "react-native"]
+    "types": [
+      "react",
+      "react-native"
+    ]
   },
-  "include": ["App.tsx", "src/**/*"]
+  "include": [
+    "App.tsx",
+    "src/**/*"
+  ],
+  "extends": "expo/tsconfig.base"
 }
