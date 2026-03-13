@@ -13,8 +13,10 @@
 - **EAS project:** `5a38a963-71b9-4cc1-83b4-c85f8a82c725` (owner: `testerxxx`)
 - **EAS builds from git** — uncommitted changes are NOT included. Always `git commit` before `eas build`.
 - **EAS free tier:** 1 build at a time. Can't cancel running builds.
-- **Firebase project:** Currently shares `wellbuilt-sync`. Needs its own project before Play Store.
-- **Firebase Android app:** `1:559487114498:android:148619dc95e45ad45bf61b` (com.afterswitch.app, added 3/13/2026)
+- **Firebase project:** `afterswitch-app` (separate from wellbuilt-sync, created 3/13/2026)
+- **Firebase Android app:** `1:1022312211034:android:e301b5aaab762336a86e63` (com.afterswitch.app)
+- **Firebase Web client ID:** `1022312211034-25hdb5bgmujagtmukl07e1j2cpkhhjr5.apps.googleusercontent.com`
+- **Firestore:** `afterswitch_profiles/{uid}/profiles/{id}` — security rules deployed, user-scoped
 - **Website:** `C:\dev\afterswitch-site\` — static HTML, GitHub Pages
 
 ---
@@ -159,11 +161,10 @@ App registered as JSON file handler in `app.json` `intentFilters`. Tapping any J
 
 ---
 
-## Separate Firebase Project (STILL NEEDED)
-- Currently shares `wellbuilt-sync` with WellBuilt apps
-- Android app added to wellbuilt-sync (3/13/2026): `com.afterswitch.app`
-- Needs its own Firebase project before Play Store submission
-- `google-services.json` will need to be regenerated for the new project
+## Firebase Project — `afterswitch-app`
+- **Own project** — completely separate from `wellbuilt-sync` (created 3/13/2026)
+- Google Sign-In enabled, SHA-1 fingerprint added, Firestore rules deployed
+- `google-services.json` has both Android + Web OAuth clients
 
 ---
 

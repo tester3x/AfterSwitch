@@ -1,27 +1,44 @@
 {
   "project_info": {
-    "project_number": "559487114498",
-    "firebase_url": "https://wellbuilt-sync-default-rtdb.firebaseio.com",
-    "project_id": "wellbuilt-sync",
-    "storage_bucket": "wellbuilt-sync.firebasestorage.app"
+    "project_number": "1022312211034",
+    "project_id": "afterswitch-app",
+    "storage_bucket": "afterswitch-app.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:559487114498:android:148619dc95e45ad45bf61b",
+        "mobilesdk_app_id": "1:1022312211034:android:e301b5aaab762336a86e63",
         "android_client_info": {
           "package_name": "com.afterswitch.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "1022312211034-8vrsucip64ip2pq49e19ltsgpn6oq0ko.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.afterswitch.app",
+            "certificate_hash": "bb411c8a638ec41cfb45f01f67f041da9a00c764"
+          }
+        },
+        {
+          "client_id": "1022312211034-25hdb5bgmujagtmukl07e1j2cpkhhjr5.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "AIzaSyCD2nZH7mT3fNhNI-YM7yYPcSVEuCHk_-E"
+          "current_key": "AIzaSyAqAjOIvtU1HRhepfubjEJb_ohkBAmUBzM"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1022312211034-25hdb5bgmujagtmukl07e1j2cpkhhjr5.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

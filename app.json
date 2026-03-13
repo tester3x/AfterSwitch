@@ -18,7 +18,7 @@
     "android": {
       "package": "com.afterswitch.app",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon.png",
+        "foregroundImage": "./assets/icon-adaptive.png",
         "backgroundColor": "#0a0e1a"
       },
       "permissions": [

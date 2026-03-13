@@ -1,6 +1,6 @@
 /**
  * Firebase initialization for AfterSwitch.
- * Uses the wellbuilt-sync Firebase project.
+ * Uses the afterswitch-app Firebase project (separate from wellbuilt-sync).
  * Cloud profiles stored in Firestore `afterswitch_profiles/` collection.
  *
  * Auth: Google Sign-In via @react-native-google-signin → Firebase credential.
@@ -20,24 +20,15 @@ import { getFirestore } from 'firebase/firestore';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 
 const firebaseConfig = {
-  apiKey: 'AIzaSyAGWXa-doFGzo7T5SxHVD_v5-SHXIc8wAI',
-  authDomain: 'wellbuilt-sync.firebaseapp.com',
-  databaseURL: 'https://wellbuilt-sync-default-rtdb.firebaseio.com',
-  projectId: 'wellbuilt-sync',
-  storageBucket: 'wellbuilt-sync.firebasestorage.app',
-  messagingSenderId: '559487114498',
-  appId: '1:559487114498:web:e951ab0c6388339d5bf61b',
+  apiKey: 'AIzaSyAqAjOIvtU1HRhepfubjEJb_ohkBAmUBzM',
+  authDomain: 'afterswitch-app.firebaseapp.com',
+  projectId: 'afterswitch-app',
+  storageBucket: 'afterswitch-app.firebasestorage.app',
+  messagingSenderId: '1022312211034',
+  appId: '1:1022312211034:android:e301b5aaab762336a86e63',
 };
 
-/**
- * ⚠️ SETUP REQUIRED:
- * 1. Firebase Console → Authentication → Sign-in method → Enable Google
- * 2. Copy the "Web client ID" shown after enabling Google
- * 3. Paste it here
- * 4. Firebase Console → Project Settings → Android app (com.afterswitch.app) → Add SHA-1
- *    (Run `eas credentials` to get the SHA-1 fingerprint)
- */
-const WEB_CLIENT_ID = 'PASTE_WEB_CLIENT_ID_HERE.apps.googleusercontent.com';
+const WEB_CLIENT_ID = '1022312211034-25hdb5bgmujagtmukl07e1j2cpkhhjr5.apps.googleusercontent.com';
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);

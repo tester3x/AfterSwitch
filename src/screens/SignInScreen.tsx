@@ -33,7 +33,7 @@ export function SignInScreen({ onSignedIn }: Props) {
     <View style={styles.container}>
       <View style={styles.content}>
         <Image source={require('../../assets/icon.png')} style={styles.logo} />
-        <Text style={styles.title}>AfterSwitch</Text>
+        <Text style={styles.title}>After<Text style={styles.titleAccent}>Switch</Text></Text>
         <Text style={styles.subtitle}>
           Your phone settings, backed up and restorable.
         </Text>
@@ -92,6 +92,9 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: '700',
     marginBottom: 6,
+  },
+  titleAccent: {
+    color: '#e6b800',
   },
   subtitle: {
     color: '#b7c1d6',
