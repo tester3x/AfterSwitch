@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "AfterSwitch",
+    "slug": "afterswitch",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.afterswitch.app"
+    },
+    "plugins": [
+      "expo-document-picker"
+    ]
+  }
+}
