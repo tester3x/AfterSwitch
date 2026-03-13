@@ -67,6 +67,8 @@ export type SettingDiff = {
   group: SettingGroup;
   oldValue: string;
   newValue: string;
+  rawOldValue: string;
+  rawNewValue: string;
   restoreType: RestoreType;
   settingsIntent?: string;
   description?: string;

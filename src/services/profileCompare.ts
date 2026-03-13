@@ -15,6 +15,35 @@ import type {
 import { getSettingMeta, GROUP_ORDER } from '../data/settingsRegistry';
 
 /**
+ * Internal system settings that are noise — timestamps, internal state,
+ * wallpaper internals, etc. These should never show up in comparisons.
+ */
+const IGNORED_SETTING_PATTERNS = [
+  /wallpaper/i,
+  /lock_screen_custom/i,
+  /theme_customization_overlay/i,
+  /wfc_ims/i,
+  /carrier_/i,
+  /last_setup_shown/i,
+  /device_provisioned/i,
+  /setup_wizard/i,
+  /user_setup_complete/i,
+  /bluetooth_addr/i,
+  /android_id$/,
+  /install_non_market_apps/i,
+  /backup_/i,
+  /bugreport_in_power_menu/i,
+  /_timestamp$/i,
+  /_time$/i,
+  /synced_account/i,
+  /multi_press_timeout/i,
+];
+
+function isIgnoredSetting(rawKey: string): boolean {
+  return IGNORED_SETTING_PATTERNS.some((p) => p.test(rawKey));
+}
+
+/**
  * Compare two device profiles and return all differences.
  */
 export function compareProfiles(
@@ -45,6 +74,9 @@ export function compareProfiles(
       // Skip if both are empty/undefined
       if (!oldVal && !newVal) continue;
 
+      // Skip internal junk settings (wallpaper timestamps, carrier state, etc.)
+      if (isIgnoredSetting(key)) continue;
+
       const fullKey = `${ns}.${key}`;
       const meta = getSettingMeta(fullKey);
 
@@ -59,6 +91,8 @@ export function compareProfiles(
         newValue: meta.valueFormatter
           ? meta.valueFormatter(newVal || '')
           : (newVal || '(not set)'),
+        rawOldValue: oldVal || '',
+        rawNewValue: newVal || '',
         restoreType: meta.restoreType,
         settingsIntent: meta.settingsIntent,
         description: meta.description,
@@ -128,6 +162,8 @@ function compareDefaults(
       group: 'defaults',
       oldValue: oldDefault?.label || oldPkg || '(not set)',
       newValue: newDefault?.label || newPkg || '(not set)',
+      rawOldValue: oldPkg,
+      rawNewValue: newPkg,
       restoreType: 'guided',
       settingsIntent: 'android.settings.MANAGE_DEFAULT_APPS_SETTINGS',
       priority: 7,

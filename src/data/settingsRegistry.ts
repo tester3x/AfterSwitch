@@ -18,9 +18,12 @@ export type SettingMeta = {
   description?: string;
   restoreType: RestoreType;
   settingsIntent?: string;
+  samsungIntent?: string;
   valueFormatter?: (raw: string) => string;
   priority: number;
   samsungOnly?: boolean;
+  steps?: string[];
+  samsungSteps?: string[];
 };
 
 // ==================== VALUE FORMATTERS ====================
@@ -185,6 +188,17 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
     settingsIntent: SETTINGS_INTENTS.KEYBOARD,
     valueFormatter: formatComponentToAppName,
     priority: 5,
+    steps: [
+      'Scroll to "Keyboard" or "On-screen keyboard"',
+      'Tap "Default keyboard" or "Current keyboard"',
+      'Select your preferred keyboard from the list',
+    ],
+    samsungSteps: [
+      'Tap "General management"',
+      'Tap "Keyboard list and default"',
+      'Tap "Default keyboard"',
+      'Select your preferred keyboard',
+    ],
   },
   'secure.spell_checker_enabled': {
     label: 'Spell checker',
@@ -193,6 +207,17 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
     settingsIntent: SETTINGS_INTENTS.KEYBOARD,
     valueFormatter: formatOnOff,
     priority: 30,
+    steps: [
+      'Scroll to "Keyboard" or "On-screen keyboard"',
+      'Find the "Spell checker" toggle',
+      'Toggle it to match your old phone',
+    ],
+    samsungSteps: [
+      'Tap "General management"',
+      'Tap "Keyboard list and default"',
+      'Scroll to "Spell checker"',
+      'Toggle to match your old phone',
+    ],
   },
   'secure.show_ime_with_hard_keyboard': {
     label: 'Show on-screen keyboard with hardware keyboard',
@@ -201,6 +226,15 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
     settingsIntent: SETTINGS_INTENTS.KEYBOARD,
     valueFormatter: formatOnOff,
     priority: 35,
+    steps: [
+      'Scroll to "Physical keyboard"',
+      'Toggle "Show on-screen keyboard"',
+    ],
+    samsungSteps: [
+      'Tap "General management"',
+      'Tap "Physical keyboard"',
+      'Toggle "Show on-screen keyboard"',
+    ],
   },
 
   // ---- Navigation ----
@@ -212,6 +246,14 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
     settingsIntent: SETTINGS_INTENTS.DISPLAY,
     valueFormatter: formatNavigationMode,
     priority: 8,
+    steps: [
+      'Tap "Gestures" or "System navigation"',
+      'Select "Gesture navigation" or "3-button navigation"',
+    ],
+    samsungSteps: [
+      'Tap "Navigation bar"',
+      'Choose "Buttons" or "Swipe gestures"',
+    ],
   },
 
   // ---- Accessibility ----
@@ -221,6 +263,11 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
     restoreType: 'guided',
     settingsIntent: SETTINGS_INTENTS.ACCESSIBILITY,
     priority: 40,
+    steps: [
+      'Scroll through the list of installed services',
+      'Tap on the service you want to enable',
+      'Toggle it ON and confirm the permission dialog',
+    ],
   },
   'secure.long_press_timeout': {
     label: 'Touch and hold delay',
@@ -229,6 +276,15 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
     settingsIntent: SETTINGS_INTENTS.ACCESSIBILITY,
     valueFormatter: (v) => `${parseInt(v, 10)}ms`,
     priority: 42,
+    steps: [
+      'Scroll to "Touch and hold delay"',
+      'Select Short, Medium, or Long to match your old phone',
+    ],
+    samsungSteps: [
+      'Tap "Interaction and dexterity"',
+      'Tap "Touch and hold delay"',
+      'Select the matching duration',
+    ],
   },
 
   // ---- Connectivity ----
@@ -255,6 +311,15 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
     settingsIntent: SETTINGS_INTENTS.DATE,
     valueFormatter: formatOnOff,
     priority: 55,
+    steps: [
+      'Find "Automatic date & time" or "Set time automatically"',
+      'Toggle it to match your old phone',
+    ],
+    samsungSteps: [
+      'Tap "General management"',
+      'Tap "Date and time"',
+      'Toggle "Automatic date and time"',
+    ],
   },
 
   // ---- Developer Options ----
@@ -265,6 +330,12 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
     settingsIntent: SETTINGS_INTENTS.DEVELOPER,
     valueFormatter: formatOnOff,
     priority: 60,
+    steps: [
+      'If Developer Options is not visible, go to About Phone and tap Build Number 7 times',
+      'Open Developer Options',
+      'Scroll to "USB debugging"',
+      'Toggle to match your old phone',
+    ],
   },
   'global.animator_duration_scale': {
     label: 'Animator duration scale',
@@ -273,6 +344,12 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
     settingsIntent: SETTINGS_INTENTS.DEVELOPER,
     valueFormatter: formatAnimationScale,
     priority: 65,
+    steps: [
+      'If Developer Options is not visible, go to About Phone and tap Build Number 7 times',
+      'Open Developer Options',
+      'Scroll to "Animator duration scale"',
+      'Select the matching value',
+    ],
   },
   'global.transition_animation_scale': {
     label: 'Transition animation scale',
@@ -281,6 +358,12 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
     settingsIntent: SETTINGS_INTENTS.DEVELOPER,
     valueFormatter: formatAnimationScale,
     priority: 66,
+    steps: [
+      'If Developer Options is not visible, go to About Phone and tap Build Number 7 times',
+      'Open Developer Options',
+      'Scroll to "Transition animation scale"',
+      'Select the matching value',
+    ],
   },
   'global.window_animation_scale': {
     label: 'Window animation scale',
@@ -289,6 +372,12 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
     settingsIntent: SETTINGS_INTENTS.DEVELOPER,
     valueFormatter: formatAnimationScale,
     priority: 67,
+    steps: [
+      'If Developer Options is not visible, go to About Phone and tap Build Number 7 times',
+      'Open Developer Options',
+      'Scroll to "Window animation scale"',
+      'Select the matching value',
+    ],
   },
   'global.stay_on_while_plugged_in': {
     label: 'Stay awake while charging',
@@ -297,6 +386,12 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
     settingsIntent: SETTINGS_INTENTS.DEVELOPER,
     valueFormatter: formatOnOff,
     priority: 68,
+    steps: [
+      'If Developer Options is not visible, go to About Phone and tap Build Number 7 times',
+      'Open Developer Options',
+      'Scroll to "Stay awake"',
+      'Toggle to match your old phone',
+    ],
   },
 
   // ---- Samsung-specific ----
@@ -308,6 +403,12 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
     settingsIntent: 'com.samsung.android.honeyboard.SETTINGS',
     priority: 1,
     samsungOnly: true,
+    samsungSteps: [
+      'Tap "Languages and types"',
+      'Tap your active keyboard language',
+      'Look for "Alternative characters"',
+      'Toggle to match your old phone',
+    ],
   },
   'samsung.navigation_mode': {
     label: 'Navigation mode (Samsung)',
@@ -317,6 +418,11 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
     valueFormatter: formatNavigationMode,
     priority: 3,
     samsungOnly: true,
+    samsungSteps: [
+      'Tap "Navigation bar"',
+      'Choose "Buttons" or "Swipe gestures"',
+      'If using gestures, configure sensitivity if desired',
+    ],
   },
   'samsung.edge_enable': {
     label: 'Edge panels',
@@ -326,6 +432,10 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
     valueFormatter: formatOnOff,
     priority: 45,
     samsungOnly: true,
+    samsungSteps: [
+      'Scroll to "Edge panels"',
+      'Toggle Edge panels ON or OFF to match your old phone',
+    ],
   },
   'samsung.smart_stay': {
     label: 'Smart Stay',
@@ -336,6 +446,11 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
     valueFormatter: formatOnOff,
     priority: 46,
     samsungOnly: true,
+    samsungSteps: [
+      'Go to "Motions and gestures" or "Advanced features"',
+      'Find "Smart Stay" or "Keep screen on while viewing"',
+      'Toggle to match your old phone',
+    ],
   },
   'samsung.multi_window_enabled': {
     label: 'Multi window',
@@ -345,6 +460,11 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
     valueFormatter: formatOnOff,
     priority: 47,
     samsungOnly: true,
+    samsungSteps: [
+      'Go to Display or Advanced features',
+      'Find "Multi window"',
+      'Toggle to match your old phone',
+    ],
   },
   'samsung.show_button_background': {
     label: 'Show button background',
@@ -354,6 +474,11 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
     valueFormatter: formatOnOff,
     priority: 48,
     samsungOnly: true,
+    samsungSteps: [
+      'Tap "Visibility enhancements"',
+      'Find "Show button shapes" or "Button backgrounds"',
+      'Toggle to match your old phone',
+    ],
   },
 };
 
@@ -452,3 +577,77 @@ export const GROUP_ORDER: Record<SettingGroup, number> = {
   apps: 10,
   other: 11,
 };
+
+// ==================== WIZARD HELPERS ====================
+
+import type { SettingDiff } from '../types/profile';
+
+/**
+ * Generate generic steps for pattern-matched settings without curated instructions.
+ */
+function getGenericSteps(diff: SettingDiff): string[] {
+  const rawKey = diff.key.split('.').slice(1).join('.');
+  const humanized = rawKey.replace(/_/g, ' ');
+
+  if (diff.category === 'secure') {
+    return [
+      `Look for a setting related to "${humanized}"`,
+      'Change it to match the value shown above',
+      'If you can\'t find it, tap Skip',
+    ];
+  }
+  if (diff.category === 'global') {
+    return [
+      `Look for "${humanized}" in the settings screen`,
+      'Change it to match the value shown above',
+      'Some settings require Developer Options — tap Build Number 7 times in About Phone to unlock',
+    ];
+  }
+  if (diff.category === 'samsung') {
+    return [
+      `Look for a Samsung setting related to "${humanized}"`,
+      'It may be under Display, Advanced features, or General management',
+      'Change it to match the value shown above',
+    ];
+  }
+  // defaults
+  return [
+    'Find and tap the matching app category',
+    'Select the app that matches your old phone',
+  ];
+}
+
+/**
+ * Get the step-by-step instructions for a setting diff.
+ * Uses Samsung-specific steps when available on Samsung devices.
+ */
+export function getStepsForDiff(
+  diff: SettingDiff,
+  isSamsung: boolean
+): { steps: string[]; isGeneric: boolean } {
+  const meta = SETTINGS_REGISTRY[diff.key];
+
+  if (meta) {
+    if (isSamsung && meta.samsungSteps) {
+      return { steps: meta.samsungSteps, isGeneric: false };
+    }
+    if (meta.steps) {
+      return { steps: meta.steps, isGeneric: false };
+    }
+  }
+
+  return { steps: getGenericSteps(diff), isGeneric: true };
+}
+
+/**
+ * Get the correct settings intent for a diff, with Samsung override.
+ */
+export function getIntentForDiff(diff: SettingDiff, isSamsung: boolean): string {
+  const meta = SETTINGS_REGISTRY[diff.key];
+
+  if (meta && isSamsung && meta.samsungIntent) {
+    return meta.samsungIntent;
+  }
+
+  return diff.settingsIntent || SETTINGS_INTENTS.GENERAL;
+}

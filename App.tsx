@@ -261,6 +261,7 @@ export default function App() {
           {activeTab === 'restore' && (
             <RestoreScreen
               comparison={comparison}
+              currentProfile={currentProfile}
               onSelectCloudProfile={handleSelectCloudProfile}
             />
           )}

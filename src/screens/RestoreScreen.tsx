@@ -3,6 +3,7 @@ import { Animated, Linking, Pressable, StyleSheet, Text, TouchableOpacity, View 
 import { SectionCard } from '../components/SectionCard';
 import { CloudProfileList } from '../components/CloudProfileList';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { GuidedWizard } from '../components/GuidedWizard';
 import { GROUP_LABELS, GROUP_ORDER } from '../data/settingsRegistry';
 import type { AppDiff, ComparisonResult, SettingDiff, SettingGroup } from '../types/profile';
 import type { DeviceProfile } from '../types/profile';
@@ -18,12 +19,13 @@ import {
 
 type Props = {
   comparison: ComparisonResult | null;
+  currentProfile: DeviceProfile | null;
   onSelectCloudProfile: (profile: DeviceProfile) => void;
 };
 
 type RestoreStatus = 'pending' | 'restoring' | 'success' | 'failed';
 
-export function RestoreScreen({ comparison, onSelectCloudProfile }: Props) {
+export function RestoreScreen({ comparison, currentProfile, onSelectCloudProfile }: Props) {
   const [restoreStatuses, setRestoreStatuses] = useState<Record<string, RestoreStatus>>({});
   const [hasWriteSettings, setHasWriteSettings] = useState<boolean | null>(null);
   const [hasSecureSettings, setHasSecureSettings] = useState<boolean | null>(null);
@@ -31,6 +33,11 @@ export function RestoreScreen({ comparison, onSelectCloudProfile }: Props) {
   const [checkedApps, setCheckedApps] = useState<Record<string, boolean>>({});
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [restoring, setRestoring] = useState(false);
+  const [wizardActive, setWizardActive] = useState(false);
+
+  const isSamsung = useMemo(() => {
+    return currentProfile?.device.manufacturer?.toLowerCase().includes('samsung') ?? false;
+  }, [currentProfile]);
 
   React.useEffect(() => {
     (async () => {
@@ -175,6 +182,9 @@ export function RestoreScreen({ comparison, onSelectCloudProfile }: Props) {
   // All restorable diffs (auto + unlocked secure)
   const allRestorableDiffs = [...autoDiffs, ...secureAutoDiffs];
 
+  // Failed auto-restore diffs (these should be offered as guided)
+  const failedAutoDiffs = autoDiffs.filter((d) => restoreStatuses[d.key] === 'failed');
+
   // Count stats — filter out already-restored items
   const successCount = Object.values(restoreStatuses).filter((s) => s === 'success').length;
   const failedCount = Object.values(restoreStatuses).filter((s) => s === 'failed').length;
@@ -215,9 +225,19 @@ export function RestoreScreen({ comparison, onSelectCloudProfile }: Props) {
           </Text>
         )}
         {failedCount > 0 && (
-          <Text style={styles.failedBanner}>
-            {failedCount} failed — may need ADB permission
-          </Text>
+          <View style={styles.failedBox}>
+            <Text style={styles.failedBanner}>
+              {failedCount} failed — these need to be changed manually
+            </Text>
+            <Pressable
+              style={styles.failedWizardBtn}
+              onPress={() => setWizardActive(true)}
+            >
+              <Text style={styles.failedWizardBtnText}>
+                Walk me through them →
+              </Text>
+            </Pressable>
+          </View>
         )}
         {pendingRestorableCount > 0 && (
           <PrimaryButton
@@ -288,23 +308,46 @@ export function RestoreScreen({ comparison, onSelectCloudProfile }: Props) {
       {/* Guided Restore groups */}
       {remainingGuidedCount > 0 && (
         <SectionCard title={`Guided Restore (${remainingGuidedCount})`}>
-          <Text style={styles.sectionDescription}>
-            These need manual changes. Expand a group and tap "Open Settings" to go to the right screen.
-          </Text>
-          {guidedGrouped.map(({ group, diffs }) => (
-            <CollapsibleGroup
-              key={`guided-${group}`}
-              group={group}
-              diffs={diffs}
-              expanded={expandedGroups[`guided-${group}`] ?? false}
-              onToggleExpand={() => toggleGroup(`guided-${group}`)}
-              checkedSettings={checkedSettings}
-              restoreStatuses={restoreStatuses}
-              onToggleSetting={toggleSetting}
-              onOpenSettings={handleOpenSettings}
-              guided
+          {wizardActive ? (
+            <GuidedWizard
+              diffs={[
+                ...failedAutoDiffs,
+                ...(hasSecureSettings
+                  ? guidedDiffs.filter((d) => d.category === 'defaults')
+                  : guidedDiffs
+                ).filter((d) => restoreStatuses[d.key] !== 'success'),
+              ]}
+              isSamsung={isSamsung}
+              onComplete={() => setWizardActive(false)}
+              onSettingVerified={(key) => {
+                setRestoreStatuses((prev) => ({ ...prev, [key]: 'success' }));
+              }}
             />
-          ))}
+          ) : (
+            <>
+              <Text style={styles.sectionDescription}>
+                These need manual changes. The wizard walks you through each one.
+              </Text>
+              <PrimaryButton
+                label={`Start Guided Restore (${remainingGuidedCount})`}
+                onPress={() => setWizardActive(true)}
+              />
+              {guidedGrouped.map(({ group, diffs }) => (
+                <CollapsibleGroup
+                  key={`guided-${group}`}
+                  group={group}
+                  diffs={diffs}
+                  expanded={expandedGroups[`guided-${group}`] ?? false}
+                  onToggleExpand={() => toggleGroup(`guided-${group}`)}
+                  checkedSettings={checkedSettings}
+                  restoreStatuses={restoreStatuses}
+                  onToggleSetting={toggleSetting}
+                  onOpenSettings={handleOpenSettings}
+                  guided
+                />
+              ))}
+            </>
+          )}
         </SectionCard>
       )}
 
@@ -517,11 +560,28 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 8,
   },
+  failedBox: {
+    marginBottom: 8,
+    gap: 8,
+  },
   failedBanner: {
     color: '#f87171',
     fontSize: 14,
     fontWeight: '600',
-    marginBottom: 8,
+  },
+  failedWizardBtn: {
+    backgroundColor: '#1a2340',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e6b800',
+    alignSelf: 'flex-start',
+  },
+  failedWizardBtnText: {
+    color: '#e6b800',
+    fontSize: 13,
+    fontWeight: '600',
   },
   allDoneBanner: {
     color: '#4ade80',
