@@ -75,6 +75,24 @@ function formatComponentToAppName(val: string): string {
   return known[pkg] || pkg;
 }
 
+/**
+ * Smart value formatter for settings without curated formatters.
+ * Handles the most common patterns so users don't see raw "0"/"1".
+ */
+function formatSmartValue(val: string): string {
+  // Boolean 0/1 → OFF/ON (the #1 complaint from users)
+  if (val === '0') return 'OFF';
+  if (val === '1') return 'ON';
+  // Component names (com.foo.bar/...) → friendly app name
+  if (val.includes('/') && val.includes('.')) return formatComponentToAppName(val);
+  // Package names without slash (com.foo.bar) → just the last segment
+  if (val.startsWith('com.') && !val.includes(' ')) {
+    const parts = val.split('.');
+    return parts[parts.length - 1].charAt(0).toUpperCase() + parts[parts.length - 1].slice(1);
+  }
+  return val;
+}
+
 // ==================== SETTINGS INTENTS ====================
 
 export const SETTINGS_INTENTS = {
@@ -480,6 +498,240 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
       'Toggle to match your old phone',
     ],
   },
+
+  // ---- Samsung AOD (Always On Display) ----
+  'samsung.aod_mode': {
+    label: 'Always On Display mode',
+    group: 'samsung',
+    description: 'Controls when Always On Display is shown (always, tap, scheduled)',
+    restoreType: 'guided',
+    settingsIntent: 'com.samsung.android.app.aodservice/.AODSettingsActivity',
+    priority: 10,
+    samsungOnly: true,
+    samsungSteps: [
+      'Open Settings > Lock screen',
+      'Tap "Always On Display"',
+      'Choose when to show: Tap to show, Show always, or Show as scheduled',
+    ],
+  },
+  'samsung.aod_tap_to_show_mode': {
+    label: 'Always On Display - Tap to show',
+    group: 'samsung',
+    description: 'Show the clock and notifications when you tap the screen',
+    restoreType: 'guided',
+    settingsIntent: 'com.samsung.android.app.aodservice/.AODSettingsActivity',
+    valueFormatter: formatOnOff,
+    priority: 11,
+    samsungOnly: true,
+    samsungSteps: [
+      'Open Settings > Lock screen',
+      'Tap "Always On Display"',
+      'Select "Tap to show" mode',
+    ],
+  },
+  'samsung.aod_clock_style': {
+    label: 'Always On Display clock style',
+    group: 'samsung',
+    restoreType: 'guided',
+    settingsIntent: 'com.samsung.android.app.aodservice/.AODSettingsActivity',
+    priority: 12,
+    samsungOnly: true,
+    samsungSteps: [
+      'Open Settings > Lock screen',
+      'Tap "Always On Display"',
+      'Tap "Clock style"',
+      'Choose the clock that matches your old phone',
+    ],
+  },
+  'samsung.aod_show_on_charging': {
+    label: 'Always On Display while charging',
+    group: 'samsung',
+    restoreType: 'guided',
+    settingsIntent: 'com.samsung.android.app.aodservice/.AODSettingsActivity',
+    valueFormatter: formatOnOff,
+    priority: 13,
+    samsungOnly: true,
+    samsungSteps: [
+      'Open Settings > Lock screen',
+      'Tap "Always On Display"',
+      'Look for "Show while charging" or similar option',
+      'Toggle to match your old phone',
+    ],
+  },
+
+  // ---- Samsung Display ----
+  'samsung.blue_light_filter': {
+    label: 'Blue light filter (Eye comfort shield)',
+    group: 'samsung',
+    restoreType: 'guided',
+    settingsIntent: SETTINGS_INTENTS.DISPLAY,
+    valueFormatter: formatOnOff,
+    priority: 14,
+    samsungOnly: true,
+    samsungSteps: [
+      'Open Settings > Display',
+      'Tap "Eye comfort shield"',
+      'Toggle it ON or OFF to match your old phone',
+    ],
+  },
+  'samsung.dark_mode': {
+    label: 'Dark mode',
+    group: 'samsung',
+    restoreType: 'guided',
+    settingsIntent: SETTINGS_INTENTS.DISPLAY,
+    valueFormatter: formatOnOff,
+    priority: 15,
+    samsungOnly: true,
+    samsungSteps: [
+      'Open Settings > Display',
+      'Toggle "Dark mode" or "Light mode" at the top',
+    ],
+  },
+  'samsung.screen_mode': {
+    label: 'Screen mode (Vivid / Natural)',
+    group: 'samsung',
+    restoreType: 'guided',
+    settingsIntent: SETTINGS_INTENTS.DISPLAY,
+    priority: 16,
+    samsungOnly: true,
+    samsungSteps: [
+      'Open Settings > Display',
+      'Tap "Screen mode"',
+      'Choose "Vivid" or "Natural" to match your old phone',
+    ],
+  },
+  'samsung.adaptive_brightness': {
+    label: 'Adaptive brightness',
+    group: 'samsung',
+    restoreType: 'guided',
+    settingsIntent: SETTINGS_INTENTS.DISPLAY,
+    valueFormatter: formatOnOff,
+    priority: 17,
+    samsungOnly: true,
+    samsungSteps: [
+      'Open Settings > Display',
+      'Toggle "Adaptive brightness"',
+    ],
+  },
+
+  // ---- Samsung Advanced features ----
+  'samsung.motion_wake_up': {
+    label: 'Lift to wake',
+    group: 'samsung',
+    description: 'Screen turns on when you pick up the phone',
+    restoreType: 'guided',
+    settingsIntent: 'android.settings.DISPLAY_SETTINGS',
+    valueFormatter: formatOnOff,
+    priority: 20,
+    samsungOnly: true,
+    samsungSteps: [
+      'Open Settings > Advanced features',
+      'Tap "Motions and gestures"',
+      'Toggle "Lift to wake"',
+    ],
+  },
+  'samsung.double_tap_to_wake': {
+    label: 'Double tap to wake',
+    group: 'samsung',
+    restoreType: 'guided',
+    settingsIntent: 'android.settings.DISPLAY_SETTINGS',
+    valueFormatter: formatOnOff,
+    priority: 21,
+    samsungOnly: true,
+    samsungSteps: [
+      'Open Settings > Advanced features',
+      'Tap "Motions and gestures"',
+      'Toggle "Double tap to turn on screen"',
+    ],
+  },
+  'samsung.double_tap_to_sleep': {
+    label: 'Double tap to sleep',
+    group: 'samsung',
+    restoreType: 'guided',
+    settingsIntent: 'android.settings.DISPLAY_SETTINGS',
+    valueFormatter: formatOnOff,
+    priority: 22,
+    samsungOnly: true,
+    samsungSteps: [
+      'Open Settings > Advanced features',
+      'Tap "Motions and gestures"',
+      'Toggle "Double tap to turn off screen"',
+    ],
+  },
+  'samsung.palm_motion': {
+    label: 'Palm swipe to capture',
+    group: 'samsung',
+    description: 'Take a screenshot by swiping your palm across the screen',
+    restoreType: 'guided',
+    settingsIntent: 'android.settings.DISPLAY_SETTINGS',
+    valueFormatter: formatOnOff,
+    priority: 23,
+    samsungOnly: true,
+    samsungSteps: [
+      'Open Settings > Advanced features',
+      'Tap "Motions and gestures"',
+      'Toggle "Palm swipe to capture"',
+    ],
+  },
+  'samsung.one_hand_mode': {
+    label: 'One-handed mode',
+    group: 'samsung',
+    restoreType: 'guided',
+    settingsIntent: 'android.settings.DISPLAY_SETTINGS',
+    valueFormatter: formatOnOff,
+    priority: 24,
+    samsungOnly: true,
+    samsungSteps: [
+      'Open Settings > Advanced features',
+      'Tap "One-handed mode"',
+      'Toggle ON and choose Gesture or Button activation',
+    ],
+  },
+
+  // ---- Samsung Lock Screen ----
+  'samsung.lock_screen_show_notifications': {
+    label: 'Lock screen notifications',
+    group: 'samsung',
+    restoreType: 'guided',
+    settingsIntent: SETTINGS_INTENTS.NOTIFICATION,
+    valueFormatter: formatOnOff,
+    priority: 30,
+    samsungOnly: true,
+    samsungSteps: [
+      'Open Settings > Lock screen',
+      'Tap "Notifications"',
+      'Toggle notification visibility and choose detail level',
+    ],
+  },
+
+  // ---- Samsung Sound ----
+  'samsung.vibration_intensity': {
+    label: 'Vibration intensity',
+    group: 'samsung',
+    restoreType: 'guided',
+    settingsIntent: SETTINGS_INTENTS.SOUND,
+    priority: 35,
+    samsungOnly: true,
+    samsungSteps: [
+      'Open Settings > Sounds and vibration',
+      'Tap "Vibration intensity"',
+      'Adjust sliders for Call, Notification, and System to match your old phone',
+    ],
+  },
+  'samsung.system_sound': {
+    label: 'System sounds',
+    group: 'samsung',
+    restoreType: 'guided',
+    settingsIntent: SETTINGS_INTENTS.SOUND,
+    valueFormatter: formatOnOff,
+    priority: 36,
+    samsungOnly: true,
+    samsungSteps: [
+      'Open Settings > Sounds and vibration',
+      'Tap "System sound/vibration control"',
+      'Toggle individual sounds to match your old phone',
+    ],
+  },
 };
 
 // ==================== PATTERN-BASED CATEGORIZATION ====================
@@ -518,6 +770,7 @@ export function getSettingMeta(fullKey: string): SettingMeta {
         label: humanizeKey(rawKey),
         group,
         restoreType: category === 'system' ? 'auto' : 'guided',
+        valueFormatter: formatSmartValue,
         priority: 500,
       };
     }
@@ -529,17 +782,52 @@ export function getSettingMeta(fullKey: string): SettingMeta {
     label: humanizeKey(rawKey),
     group: 'other',
     restoreType: category === 'system' ? 'auto' : 'info',
+    valueFormatter: formatSmartValue,
     priority: 999,
   };
 }
 
+/** Known acronyms/abbreviations that should be uppercased or expanded. */
+const ACRONYMS: Record<string, string> = {
+  aod: 'AOD (Always On Display)',
+  nfc: 'NFC',
+  led: 'LED',
+  gps: 'GPS',
+  usb: 'USB',
+  vpn: 'VPN',
+  dns: 'DNS',
+  sms: 'SMS',
+  mms: 'MMS',
+  apn: 'APN',
+  url: 'URL',
+  wifi: 'Wi-Fi',
+  ime: 'Input Method',
+  sem: 'Samsung',
+  spen: 'S Pen',
+  hdr: 'HDR',
+  dtmf: 'DTMF',
+  tts: 'Text-to-Speech',
+  ui: 'UI',
+  lte: 'LTE',
+  oem: 'OEM',
+  dpi: 'DPI',
+};
+
 /**
  * Convert a raw key like "screen_off_timeout" to "Screen Off Timeout".
+ * Recognizes common acronyms and expands abbreviations.
  */
 function humanizeKey(key: string): string {
   return key
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+    .split('_')
+    .map((word) => {
+      const lower = word.toLowerCase();
+      if (ACRONYMS[lower]) return ACRONYMS[lower];
+      if (word.length === 0) return '';
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .filter(Boolean)
+    .join(' ');
 }
 
 /**
@@ -583,37 +871,117 @@ export const GROUP_ORDER: Record<SettingGroup, number> = {
 import type { SettingDiff } from '../types/profile';
 
 /**
- * Generate generic steps for pattern-matched settings without curated instructions.
+ * Generate smarter generic steps for settings without curated instructions.
+ * Uses keyword detection to suggest WHERE in Settings to look.
  */
 function getGenericSteps(diff: SettingDiff): string[] {
   const rawKey = diff.key.split('.').slice(1).join('.');
-  const humanized = rawKey.replace(/_/g, ' ');
+  const keyLower = rawKey.toLowerCase();
+  const label = diff.label || humanizeKey(rawKey);
+
+  if (diff.category === 'defaults') {
+    return [
+      'Open Settings > Apps > Default apps',
+      `Find the category for "${label}"`,
+      'Select the app that matches your old phone',
+    ];
+  }
+
+  if (diff.category === 'samsung') {
+    // Samsung-specific: try to detect the settings section
+    if (keyLower.includes('aod')) {
+      return [
+        'Open Settings > Lock screen > Always On Display',
+        `Look for "${label}"`,
+        'Change it to match the value shown above',
+      ];
+    }
+    if (keyLower.includes('lock') || keyLower.includes('fingerprint') || keyLower.includes('biometric')) {
+      return [
+        'Open Settings > Lock screen (or Biometrics and security)',
+        `Look for "${label}"`,
+        'Change it to match the value shown above',
+      ];
+    }
+    if (keyLower.includes('sound') || keyLower.includes('vibrat') || keyLower.includes('volume') || keyLower.includes('ring')) {
+      return [
+        'Open Settings > Sounds and vibration',
+        `Look for "${label}"`,
+        'Change it to match the value shown above',
+      ];
+    }
+    if (keyLower.includes('motion') || keyLower.includes('gesture') || keyLower.includes('palm') || keyLower.includes('wake')) {
+      return [
+        'Open Settings > Advanced features > Motions and gestures',
+        `Look for "${label}"`,
+        'Toggle to match your old phone',
+      ];
+    }
+    if (keyLower.includes('keyboard') || keyLower.includes('input') || keyLower.includes('ime')) {
+      return [
+        'Open Settings > General management > Samsung Keyboard settings',
+        `Look for "${label}"`,
+        'Change it to match the value shown above',
+      ];
+    }
+    if (keyLower.includes('edge') || keyLower.includes('panel')) {
+      return [
+        'Open Settings > Display > Edge panels',
+        `Look for "${label}"`,
+        'Toggle or configure to match your old phone',
+      ];
+    }
+    // Generic Samsung fallback — still better than before
+    return [
+      `Open Settings and search for "${label}"`,
+      'Samsung has a search bar at the top of Settings — type it in',
+      'Change it to match the value shown above',
+    ];
+  }
 
   if (diff.category === 'secure') {
+    if (keyLower.includes('accessibility') || keyLower.includes('talkback') || keyLower.includes('magnif')) {
+      return [
+        'Open Settings > Accessibility',
+        `Look for "${label}"`,
+        'Change it to match the value shown above',
+      ];
+    }
+    if (keyLower.includes('keyboard') || keyLower.includes('input') || keyLower.includes('ime')) {
+      return [
+        'Open Settings > General management > Keyboard',
+        `Look for "${label}"`,
+        'Change it to match the value shown above',
+      ];
+    }
     return [
-      `Look for a setting related to "${humanized}"`,
+      `Open Settings and search for "${label}"`,
+      'Use the search bar at the top of Settings to find it quickly',
       'Change it to match the value shown above',
-      'If you can\'t find it, tap Skip',
+      'If you can\'t find it, tap Skip — some settings are device-specific',
     ];
   }
+
   if (diff.category === 'global') {
+    if (keyLower.includes('adb') || keyLower.includes('debug') || keyLower.includes('animator') || keyLower.includes('animation')) {
+      return [
+        'Open Settings > Developer options',
+        'If not visible: About phone > tap Build number 7 times',
+        `Find "${label}"`,
+        'Change it to match the value shown above',
+      ];
+    }
     return [
-      `Look for "${humanized}" in the settings screen`,
+      `Open Settings and search for "${label}"`,
+      'Use the search bar at the top of Settings to find it',
       'Change it to match the value shown above',
-      'Some settings require Developer Options — tap Build Number 7 times in About Phone to unlock',
     ];
   }
-  if (diff.category === 'samsung') {
-    return [
-      `Look for a Samsung setting related to "${humanized}"`,
-      'It may be under Display, Advanced features, or General management',
-      'Change it to match the value shown above',
-    ];
-  }
-  // defaults
+
+  // System settings — most are auto-restorable, but fallback for guided ones
   return [
-    'Find and tap the matching app category',
-    'Select the app that matches your old phone',
+    `Open Settings and search for "${label}"`,
+    'Change it to match the value shown above',
   ];
 }
 

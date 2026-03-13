@@ -13,8 +13,9 @@ import type { AppTab, ComparisonResult, DeviceProfile, ScanProgress } from './sr
 import { buildProfile } from './src/services/profileBuilder';
 import { compareProfiles } from './src/services/profileCompare';
 import { exportProfileJson, saveProfileLocally, importProfileFromUri } from './src/services/profileIO';
-import { saveProfileToCloud } from './src/services/cloudProfiles';
+import { saveProfileToCloud, loadLatestCloudProfile } from './src/services/cloudProfiles';
 import { getProfileByShareCode } from './src/services/sharedProfiles';
+import { quickSettingsCheck, type QuickCheckResult } from './src/services/quickCheck';
 import { onAuthChanged, signOutUser, type User } from './src/services/firebase';
 import { TabButton } from './src/components/TabButton';
 
@@ -33,6 +34,9 @@ export default function App() {
   const [cloudSaved, setCloudSaved] = useState(false);
   const [savedFileName, setSavedFileName] = useState<string | null>(null);
   const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [profileSource, setProfileSource] = useState<'local' | 'cloud' | null>(null);
+  const [quickCheck, setQuickCheck] = useState<QuickCheckResult | null>(null);
+  const [quickChecking, setQuickChecking] = useState(false);
 
   // Listen for Firebase auth state
   useEffect(() => {
@@ -82,13 +86,18 @@ export default function App() {
     }
   }, []);
 
-  // Load saved profiles on mount + check for incoming deep link
+  // Load saved profiles on mount + try cloud + check for incoming deep link
   useEffect(() => {
     (async () => {
+      let loadedProfile: DeviceProfile | null = null;
+
       try {
+        // 1. Load from local AsyncStorage first (instant)
         const savedProfile = await AsyncStorage.getItem(STORAGE_KEY_PROFILE);
         if (savedProfile) {
-          setCurrentProfile(JSON.parse(savedProfile));
+          loadedProfile = JSON.parse(savedProfile);
+          setCurrentProfile(loadedProfile);
+          setProfileSource('local');
         }
         const savedImported = await AsyncStorage.getItem(STORAGE_KEY_IMPORTED);
         if (savedImported) {
@@ -96,6 +105,40 @@ export default function App() {
         }
       } catch (e) {
         console.log('Failed to load saved profiles:', e);
+      }
+
+      // 2. Try loading from cloud (if signed in and local is empty)
+      if (!loadedProfile) {
+        try {
+          const cloudProfile = await loadLatestCloudProfile();
+          if (cloudProfile) {
+            loadedProfile = cloudProfile;
+            setCurrentProfile(cloudProfile);
+            setProfileSource('cloud');
+            await AsyncStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(cloudProfile));
+            setStatusMessage('Loaded your profile from the cloud.');
+          }
+        } catch (e) {
+          console.log('Cloud profile load failed:', e);
+        }
+      }
+
+      // 3. Run quick dirty check against loaded profile
+      if (loadedProfile) {
+        setQuickChecking(true);
+        try {
+          const result = await quickSettingsCheck(loadedProfile);
+          setQuickCheck(result);
+          if (result.settingsMatch) {
+            setStatusMessage('Settings match your saved profile.');
+          } else if (result.diffCount > 0) {
+            setStatusMessage(`${result.diffCount} settings changed since last scan.`);
+          }
+        } catch (e) {
+          console.log('Quick check failed:', e);
+        } finally {
+          setQuickChecking(false);
+        }
       }
 
       const initialUrl = await Linking.getInitialURL();
@@ -135,6 +178,8 @@ export default function App() {
         setScanProgress({ ...progress });
       });
       setCurrentProfile(profile);
+      setProfileSource('local');
+      setQuickCheck({ settingsMatch: true, checkedCount: 0, diffCount: 0 });
       await AsyncStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(profile));
       // Save locally
       const savedUri = saveProfileLocally(profile);
@@ -279,6 +324,10 @@ export default function App() {
               cloudSaving={cloudSaving}
               userName={user.displayName || user.email || 'Signed in'}
               onSignOut={handleSignOut}
+              profileSource={profileSource}
+              settingsMatch={quickCheck?.settingsMatch ?? false}
+              quickChecking={quickChecking}
+              diffCount={quickCheck?.diffCount ?? 0}
             />
           )}
           {activeTab === 'scan' && (

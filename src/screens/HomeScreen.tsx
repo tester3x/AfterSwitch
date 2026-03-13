@@ -15,6 +15,10 @@ type Props = {
   cloudSaving: boolean;
   userName: string | null;
   onSignOut: () => void;
+  profileSource: 'local' | 'cloud' | null;
+  settingsMatch: boolean;
+  quickChecking: boolean;
+  diffCount: number;
 };
 
 export function HomeScreen({
@@ -26,8 +30,13 @@ export function HomeScreen({
   cloudSaving,
   userName,
   onSignOut,
+  profileSource,
+  settingsMatch,
+  quickChecking,
+  diffCount,
 }: Props) {
   const hasNative = isNativeModuleAvailable();
+  const scanDisabled = settingsMatch && !!profile && !quickChecking;
 
   return (
     <>
@@ -40,31 +49,21 @@ export function HomeScreen({
         </SectionCard>
       )}
 
-      <SectionCard title="Scan This Phone">
-        <Text style={styles.description}>
-          Capture every setting on this device — display, keyboard, sound, navigation,
-          accessibility, default apps, and Samsung-specific options.
-        </Text>
-        <PrimaryButton label="Scan Device Settings" onPress={onScan} />
-        {cloudSaving && (
-          <Text style={styles.cloudStatus}>Saving to cloud...</Text>
-        )}
-        {lastScanTime && (
-          <Text style={styles.lastScan}>
-            Last scan: {new Date(lastScanTime).toLocaleString()}
-          </Text>
-        )}
-        {!hasNative && (
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>
-              SAMPLE MODE — Native module not available. Using demo data.
-            </Text>
-          </View>
-        )}
-      </SectionCard>
-
+      {/* Show saved profile immediately with source badge */}
       {profile && (
         <SectionCard title="Device Info">
+          {profileSource === 'cloud' && (
+            <View style={styles.cloudBadge}>
+              <Text style={styles.cloudBadgeIcon}>&#9729;</Text>
+              <Text style={styles.cloudBadgeText}>Loaded from Cloud</Text>
+            </View>
+          )}
+          {profileSource === 'local' && (
+            <View style={styles.localBadge}>
+              <Text style={styles.localBadgeIcon}>&#10003;</Text>
+              <Text style={styles.localBadgeText}>Saved on Device</Text>
+            </View>
+          )}
           <InfoRow label="Name" value={profile.device.nickname} />
           <InfoRow
             label="Device"
@@ -75,22 +74,10 @@ export function HomeScreen({
             <InfoRow label="One UI" value={profile.device.oneUiVersion} />
           )}
           <View style={styles.countsRow}>
-            <CountBadge
-              count={Object.keys(profile.settings.system).length}
-              label="System"
-            />
-            <CountBadge
-              count={Object.keys(profile.settings.secure).length}
-              label="Secure"
-            />
-            <CountBadge
-              count={Object.keys(profile.settings.global).length}
-              label="Global"
-            />
-            <CountBadge
-              count={profile.apps.installed.length}
-              label="Apps"
-            />
+            <CountBadge count={Object.keys(profile.settings.system).length} label="System" />
+            <CountBadge count={Object.keys(profile.settings.secure).length} label="Secure" />
+            <CountBadge count={Object.keys(profile.settings.global).length} label="Global" />
+            <CountBadge count={profile.apps.installed.length} label="Apps" />
           </View>
           <View style={styles.buttonRow}>
             <View style={styles.buttonHalf}>
@@ -102,6 +89,62 @@ export function HomeScreen({
           </View>
         </SectionCard>
       )}
+
+      <SectionCard title="Scan This Phone">
+        {/* Smart scan status badges */}
+        {quickChecking && (
+          <View style={styles.checkingBadge}>
+            <Text style={styles.checkingText}>Checking for changes...</Text>
+          </View>
+        )}
+        {!quickChecking && settingsMatch && profile && (
+          <View style={styles.matchBadge}>
+            <Text style={styles.matchText}>&#10003; Settings match your saved profile</Text>
+          </View>
+        )}
+        {!quickChecking && !settingsMatch && profile && diffCount > 0 && (
+          <View style={styles.changedBadge}>
+            <Text style={styles.changedText}>
+              {diffCount} setting{diffCount !== 1 ? 's' : ''} changed since last scan
+            </Text>
+          </View>
+        )}
+
+        {!profile && (
+          <Text style={styles.description}>
+            Capture every setting on this device — display, keyboard, sound, navigation,
+            accessibility, default apps, and Samsung-specific options.
+          </Text>
+        )}
+
+        {scanDisabled ? (
+          <View style={styles.scanDisabledBtn}>
+            <Text style={styles.scanDisabledLabel}>Scan Device Settings</Text>
+            <Text style={styles.scanDisabledHint}>No changes detected</Text>
+          </View>
+        ) : (
+          <PrimaryButton
+            label={profile ? 'Re-Scan Device Settings' : 'Scan Device Settings'}
+            onPress={onScan}
+          />
+        )}
+
+        {cloudSaving && (
+          <Text style={styles.cloudStatus}>Saving to cloud...</Text>
+        )}
+        {lastScanTime && (
+          <Text style={styles.lastScan}>
+            Last scan: {new Date(lastScanTime).toLocaleString()}
+          </Text>
+        )}
+        {!hasNative && (
+          <View style={styles.sampleBadge}>
+            <Text style={styles.sampleBadgeText}>
+              SAMPLE MODE — Native module not available. Using demo data.
+            </Text>
+          </View>
+        )}
+      </SectionCard>
 
       <SectionCard title="Compare & Restore">
         <Text style={styles.description}>
@@ -144,7 +187,116 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontStyle: 'italic',
   },
-  badge: {
+  // Source badges (Device Info card)
+  cloudBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#0a1a2e',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#4ade80',
+    alignSelf: 'flex-start',
+  },
+  cloudBadgeIcon: {
+    color: '#4ade80',
+    fontSize: 14,
+  },
+  cloudBadgeText: {
+    color: '#4ade80',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  localBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#0a1a2e',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#4ade80',
+    alignSelf: 'flex-start',
+  },
+  localBadgeIcon: {
+    color: '#4ade80',
+    fontSize: 14,
+  },
+  localBadgeText: {
+    color: '#4ade80',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  // Quick check status badges (Scan card)
+  checkingBadge: {
+    backgroundColor: '#1a2340',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e6b800',
+  },
+  checkingText: {
+    color: '#e6b800',
+    fontSize: 12,
+    fontWeight: '600',
+    fontStyle: 'italic',
+  },
+  matchBadge: {
+    backgroundColor: '#0a2016',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#4ade80',
+  },
+  matchText: {
+    color: '#4ade80',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  changedBadge: {
+    backgroundColor: '#2a1a00',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#f59e0b',
+  },
+  changedText: {
+    color: '#f59e0b',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  // Greyed out scan button
+  scanDisabledBtn: {
+    backgroundColor: '#1a2340',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    opacity: 0.5,
+  },
+  scanDisabledLabel: {
+    color: '#6b7fa0',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  scanDisabledHint: {
+    color: '#4a5a7a',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  // Sample mode badge
+  sampleBadge: {
     backgroundColor: '#2a1a00',
     borderRadius: 8,
     padding: 8,
@@ -152,7 +304,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e6b800',
   },
-  badgeText: {
+  sampleBadgeText: {
     color: '#e6b800',
     fontSize: 11,
     fontWeight: '600',

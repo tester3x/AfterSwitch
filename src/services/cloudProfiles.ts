@@ -13,6 +13,7 @@ import {
   deleteDoc,
   query,
   orderBy,
+  limit,
   serverTimestamp,
   type Timestamp,
 } from 'firebase/firestore';
@@ -100,6 +101,23 @@ export async function loadCloudProfile(profileId: string): Promise<DeviceProfile
   if (!snapshot.exists()) return null;
 
   const data = snapshot.data();
+  return JSON.parse(data.profile) as DeviceProfile;
+}
+
+/**
+ * Load the most recent cloud profile for the current user.
+ * Used on app launch to show the cloud profile immediately.
+ */
+export async function loadLatestCloudProfile(): Promise<DeviceProfile | null> {
+  const user = ensureAuth();
+
+  const profilesRef = collection(db, COLLECTION, user.uid, 'profiles');
+  const q = query(profilesRef, orderBy('savedAt', 'desc'), limit(1));
+  const snapshot = await getDocs(q);
+
+  if (snapshot.empty) return null;
+
+  const data = snapshot.docs[0].data();
   return JSON.parse(data.profile) as DeviceProfile;
 }
 
