@@ -12,6 +12,7 @@ import { buildProfile } from './src/services/profileBuilder';
 import { compareProfiles } from './src/services/profileCompare';
 import { exportProfileJson, importProfileFromPicker, saveProfileLocally, loadProfileFromPath, listSavedProfiles } from './src/services/profileIO';
 import type { SavedProfileInfo } from './src/services/profileIO';
+import { saveProfileToCloud } from './src/services/cloudProfiles';
 import { TabButton } from './src/components/TabButton';
 
 const STORAGE_KEY_PROFILE = 'afterswitch_current_profile';
@@ -24,6 +25,7 @@ export default function App() {
   const [statusMessage, setStatusMessage] = useState('Ready.');
   const [scanning, setScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
+  const [cloudSaving, setCloudSaving] = useState(false);
   const [savedProfiles, setSavedProfiles] = useState<SavedProfileInfo[]>([]);
 
   // Load saved profiles on mount
@@ -107,6 +109,26 @@ export default function App() {
     }
   }, [currentProfile]);
 
+  const handleSaveToCloud = useCallback(async () => {
+    if (!currentProfile) {
+      setStatusMessage('No profile to save. Scan first.');
+      return;
+    }
+    setCloudSaving(true);
+    try {
+      const profileId = await saveProfileToCloud(currentProfile);
+      setStatusMessage(`Saved to cloud: ${profileId}`);
+    } catch (error) {
+      setStatusMessage(`Cloud save failed: ${String(error)}`);
+    } finally {
+      setCloudSaving(false);
+    }
+  }, [currentProfile]);
+
+  const handleLoadFromCloud = useCallback(() => {
+    setActiveTab('cloud');
+  }, []);
+
   const handleCloudSelect = useCallback(async (profile: DeviceProfile) => {
     setImportedProfile(profile);
     await AsyncStorage.setItem(STORAGE_KEY_IMPORTED, JSON.stringify(profile));
@@ -187,6 +209,9 @@ export default function App() {
               onScan={handleScan}
               onImport={handleImport}
               onExport={handleExport}
+              onSaveToCloud={handleSaveToCloud}
+              onLoadFromCloud={handleLoadFromCloud}
+              cloudSaving={cloudSaving}
               savedProfiles={savedProfiles}
               onSelectSavedProfile={handleSelectSavedProfile}
             />
