@@ -1,38 +1,144 @@
 /**
- * Profile import/export via file system and share sheet.
- * Handles schema validation and v1→v2 migration.
+ * Profile import/export with human-friendly file management.
+ *
+ * Profiles are saved to the app's documents directory under a "profiles/" folder
+ * with clear, recognizable names like "AfterSwitch - Galaxy S24 Ultra - Mar 12 2026.json".
+ *
+ * Export: saves locally + opens share sheet for transfer to another device.
+ * Import: shows saved profiles list first, falls back to file picker.
  */
 
 import * as DocumentPicker from 'expo-document-picker';
-import { File, Paths } from 'expo-file-system';
+import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import type { DeviceProfile } from '../types/profile';
 
+/** Directory where profiles are stored inside the app's document dir */
+const PROFILES_DIR = `${FileSystem.documentDirectory}profiles/`;
+
 /**
- * Export profile as JSON file and open the system share sheet.
- * File name includes device model for easy identification.
+ * Ensure the profiles directory exists.
+ */
+async function ensureProfilesDir(): Promise<void> {
+  const info = await FileSystem.getInfoAsync(PROFILES_DIR);
+  if (!info.exists) {
+    await FileSystem.makeDirectoryAsync(PROFILES_DIR, { intermediates: true });
+  }
+}
+
+/**
+ * Generate a human-readable file name from a profile.
+ * Example: "AfterSwitch - Galaxy S24 Ultra - Mar 12 2026.json"
+ */
+function generateFileName(profile: DeviceProfile): string {
+  // Use device nickname or model for the device part
+  const deviceName = profile.device.nickname || profile.device.model || 'Unknown Device';
+  // Clean for filesystem safety
+  const safeDevice = deviceName.replace(/[^a-zA-Z0-9 '-]/g, '').trim();
+
+  // Human-readable date
+  const date = new Date(profile.exportedAt);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const dateStr = `${months[date.getMonth()]} ${date.getDate()} ${date.getFullYear()}`;
+
+  return `AfterSwitch - ${safeDevice} - ${dateStr}.json`;
+}
+
+/**
+ * Save a profile to the app's profiles directory.
+ * Returns the file URI.
+ */
+export async function saveProfileLocally(profile: DeviceProfile): Promise<string> {
+  await ensureProfilesDir();
+  const fileName = generateFileName(profile);
+  const filePath = PROFILES_DIR + fileName;
+
+  await FileSystem.writeAsStringAsync(filePath, JSON.stringify(profile, null, 2));
+  return filePath;
+}
+
+/**
+ * Export profile: save locally + open share sheet for transfer.
  */
 export async function exportProfileJson(profile: DeviceProfile): Promise<string> {
-  const safeName = profile.device.model.replace(/[^a-zA-Z0-9-_]/g, '-');
-  const date = new Date().toISOString().split('T')[0];
-  const fileName = `afterswitch-${safeName}-${date}.json`;
-
-  const file = new File(Paths.cache, fileName);
-  file.write(JSON.stringify(profile, null, 2));
+  const filePath = await saveProfileLocally(profile);
 
   if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(file.uri, {
+    await Sharing.shareAsync(filePath, {
       mimeType: 'application/json',
-      dialogTitle: 'Save AfterSwitch Profile',
+      dialogTitle: 'Send AfterSwitch Profile',
     });
   }
 
-  return file.uri;
+  return filePath;
+}
+
+/**
+ * List all saved profiles in the app's profiles directory.
+ * Returns them sorted newest first.
+ */
+export async function listSavedProfiles(): Promise<SavedProfileInfo[]> {
+  await ensureProfilesDir();
+
+  const files = await FileSystem.readDirectoryAsync(PROFILES_DIR);
+  const profiles: SavedProfileInfo[] = [];
+
+  for (const file of files) {
+    if (!file.endsWith('.json')) continue;
+
+    try {
+      const filePath = PROFILES_DIR + file;
+      const content = await FileSystem.readAsStringAsync(filePath);
+      const parsed = JSON.parse(content);
+
+      if (parsed.device && parsed.settings) {
+        profiles.push({
+          fileName: file,
+          filePath,
+          deviceName: parsed.device.nickname || parsed.device.model || 'Unknown',
+          manufacturer: parsed.device.manufacturer || '',
+          exportedAt: parsed.exportedAt || '',
+          settingsCount:
+            Object.keys(parsed.settings.system || {}).length +
+            Object.keys(parsed.settings.secure || {}).length +
+            Object.keys(parsed.settings.global || {}).length +
+            Object.keys(parsed.settings.samsung || {}).length,
+          appsCount: parsed.apps?.installed?.length || 0,
+        });
+      }
+    } catch {
+      // Skip malformed files
+    }
+  }
+
+  // Sort newest first
+  profiles.sort((a, b) => new Date(b.exportedAt).getTime() - new Date(a.exportedAt).getTime());
+  return profiles;
+}
+
+export type SavedProfileInfo = {
+  fileName: string;
+  filePath: string;
+  deviceName: string;
+  manufacturer: string;
+  exportedAt: string;
+  settingsCount: number;
+  appsCount: number;
+};
+
+/**
+ * Load a profile from a specific file path.
+ */
+export async function loadProfileFromPath(filePath: string): Promise<DeviceProfile> {
+  const content = await FileSystem.readAsStringAsync(filePath);
+  const parsed = JSON.parse(content);
+  return validateAndMigrate(parsed);
 }
 
 /**
  * Import a profile from the device file picker.
  * Validates the JSON structure and migrates v1 profiles to v2.
+ * Also saves a copy to the profiles directory for future access.
  */
 export async function importProfileFromPicker(): Promise<DeviceProfile | null> {
   const result = await DocumentPicker.getDocumentAsync({
@@ -50,8 +156,7 @@ export async function importProfileFromPicker(): Promise<DeviceProfile | null> {
     throw new Error('Profile file too large (max 10MB).');
   }
 
-  const importedFile = new File(asset.uri);
-  const content = await importedFile.text();
+  const content = await FileSystem.readAsStringAsync(asset.uri);
 
   let parsed: any;
   try {
@@ -60,7 +165,19 @@ export async function importProfileFromPicker(): Promise<DeviceProfile | null> {
     throw new Error('Invalid JSON file. Please select an AfterSwitch profile.');
   }
 
-  return validateAndMigrate(parsed);
+  const profile = validateAndMigrate(parsed);
+
+  // Save a copy locally so it shows up in the saved profiles list
+  await saveProfileLocally(profile);
+
+  return profile;
+}
+
+/**
+ * Delete a saved profile file.
+ */
+export async function deleteSavedProfile(filePath: string): Promise<void> {
+  await FileSystem.deleteAsync(filePath, { idempotent: true });
 }
 
 /**
@@ -89,10 +206,9 @@ function validateAndMigrate(data: any): DeviceProfile {
 }
 
 /**
- * Migrate a v1 profile (from ChatGPT scaffold) to v2 format.
+ * Migrate a v1 profile to v2 format.
  */
 function migrateV1toV2(v1: any): DeviceProfile {
-  // Convert string defaults to AppDefault objects
   const defaults: Record<string, { packageName: string; label: string } | null> = {};
   if (v1.defaults) {
     for (const [key, value] of Object.entries(v1.defaults)) {
@@ -104,7 +220,6 @@ function migrateV1toV2(v1: any): DeviceProfile {
     }
   }
 
-  // Convert string[] app list to InstalledApp[]
   const installed = Array.isArray(v1.apps?.installedPackages)
     ? v1.apps.installedPackages.map((pkg: string) => ({
         packageName: pkg,

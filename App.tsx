@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { ScanScreen } from './src/screens/ScanScreen';
@@ -10,7 +10,8 @@ import { CloudProfilesScreen } from './src/screens/CloudProfilesScreen';
 import type { AppTab, ComparisonResult, DeviceProfile, ScanProgress } from './src/types/profile';
 import { buildProfile } from './src/services/profileBuilder';
 import { compareProfiles } from './src/services/profileCompare';
-import { exportProfileJson, importProfileFromPicker } from './src/services/profileIO';
+import { exportProfileJson, importProfileFromPicker, saveProfileLocally, loadProfileFromPath, listSavedProfiles } from './src/services/profileIO';
+import type { SavedProfileInfo } from './src/services/profileIO';
 import { saveProfileToCloud } from './src/services/cloudProfiles';
 import { TabButton } from './src/components/TabButton';
 
@@ -25,6 +26,7 @@ export default function App() {
   const [scanning, setScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [cloudSaving, setCloudSaving] = useState(false);
+  const [savedProfiles, setSavedProfiles] = useState<SavedProfileInfo[]>([]);
 
   // Load saved profiles on mount
   useEffect(() => {
@@ -38,10 +40,16 @@ export default function App() {
         if (savedImported) {
           setImportedProfile(JSON.parse(savedImported));
         }
+        // Load saved profile files list
+        setSavedProfiles(await listSavedProfiles());
       } catch (e) {
         console.log('Failed to load saved profiles:', e);
       }
     })();
+  }, []);
+
+  const refreshSavedProfiles = useCallback(async () => {
+    setSavedProfiles(await listSavedProfiles());
   }, []);
 
   // Compare profiles whenever either changes
@@ -69,6 +77,9 @@ export default function App() {
       });
       setCurrentProfile(profile);
       await AsyncStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(profile));
+      // Auto-save to profiles directory
+      await saveProfileLocally(profile);
+      await refreshSavedProfiles();
 
       const totalSettings =
         Object.keys(profile.settings.system).length +
@@ -134,10 +145,23 @@ export default function App() {
       }
       setImportedProfile(imported);
       await AsyncStorage.setItem(STORAGE_KEY_IMPORTED, JSON.stringify(imported));
+      await refreshSavedProfiles();
       setStatusMessage(`Imported profile from ${imported.device.nickname}.`);
       setActiveTab('compare');
     } catch (error) {
       setStatusMessage(`Import failed: ${String(error)}`);
+    }
+  }, [refreshSavedProfiles]);
+
+  const handleSelectSavedProfile = useCallback(async (info: SavedProfileInfo) => {
+    try {
+      const profile = await loadProfileFromPath(info.filePath);
+      setImportedProfile(profile);
+      await AsyncStorage.setItem(STORAGE_KEY_IMPORTED, JSON.stringify(profile));
+      setStatusMessage(`Loaded profile from ${profile.device.nickname}.`);
+      setActiveTab('compare');
+    } catch (error) {
+      setStatusMessage(`Failed to load profile: ${String(error)}`);
     }
   }, []);
 
@@ -187,6 +211,8 @@ export default function App() {
               onSaveToCloud={handleSaveToCloud}
               onLoadFromCloud={handleLoadFromCloud}
               cloudSaving={cloudSaving}
+              savedProfiles={savedProfiles}
+              onSelectSavedProfile={handleSelectSavedProfile}
             />
           )}
           {activeTab === 'scan' && (

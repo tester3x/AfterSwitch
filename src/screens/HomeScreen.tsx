@@ -1,9 +1,10 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { SectionCard } from '../components/SectionCard';
 import { InfoRow } from '../components/InfoRow';
 import type { DeviceProfile } from '../types/profile';
+import type { SavedProfileInfo } from '../services/profileIO';
 import { isNativeModuleAvailable } from '../services/settingsReader';
 
 type Props = {
@@ -14,9 +15,21 @@ type Props = {
   onSaveToCloud: () => void;
   onLoadFromCloud: () => void;
   cloudSaving: boolean;
+  savedProfiles: SavedProfileInfo[];
+  onSelectSavedProfile: (info: SavedProfileInfo) => void;
 };
 
-export function HomeScreen({ profile, lastScanTime, onScan, onImport, onSaveToCloud, onLoadFromCloud, cloudSaving }: Props) {
+export function HomeScreen({
+  profile,
+  lastScanTime,
+  onScan,
+  onImport,
+  onSaveToCloud,
+  onLoadFromCloud,
+  cloudSaving,
+  savedProfiles,
+  onSelectSavedProfile,
+}: Props) {
   const hasNative = isNativeModuleAvailable();
 
   return (
@@ -52,7 +65,6 @@ export function HomeScreen({ profile, lastScanTime, onScan, onImport, onSaveToCl
           {profile.device.oneUiVersion && (
             <InfoRow label="One UI" value={profile.device.oneUiVersion} />
           )}
-          <InfoRow label="Security Patch" value={profile.device.securityPatch || 'Unknown'} />
           <View style={styles.countsRow}>
             <CountBadge
               count={Object.keys(profile.settings.system).length}
@@ -85,12 +97,48 @@ export function HomeScreen({ profile, lastScanTime, onScan, onImport, onSaveToCl
           Load a saved profile to compare and restore your settings — whether
           you switched phones, did a factory reset, or just need to undo changes.
         </Text>
+
+        {/* Saved profiles list */}
+        {savedProfiles.length > 0 && (
+          <View style={styles.savedSection}>
+            <Text style={styles.savedLabel}>Saved Profiles</Text>
+            {savedProfiles.map((sp) => (
+              <TouchableOpacity
+                key={sp.filePath}
+                style={styles.savedRow}
+                onPress={() => onSelectSavedProfile(sp)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.savedInfo}>
+                  <Text style={styles.savedName}>{sp.deviceName}</Text>
+                  <Text style={styles.savedMeta}>
+                    {sp.manufacturer ? sp.manufacturer + ' · ' : ''}
+                    {sp.settingsCount} settings · {sp.appsCount} apps
+                  </Text>
+                  {sp.exportedAt ? (
+                    <Text style={styles.savedDate}>
+                      {new Date(sp.exportedAt).toLocaleDateString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })}
+                    </Text>
+                  ) : null}
+                </View>
+                <Text style={styles.savedArrow}>›</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
         <View style={styles.buttonRow}>
           <View style={styles.buttonCol}>
             <PrimaryButton label="Load from Cloud" onPress={onLoadFromCloud} />
           </View>
           <View style={styles.buttonCol}>
-            <PrimaryButton label="Import JSON File" onPress={onImport} />
+            <PrimaryButton label="Browse Files" onPress={onImport} />
           </View>
         </View>
       </SectionCard>
@@ -157,6 +205,49 @@ const styles = StyleSheet.create({
   },
   cloudRow: {
     marginTop: 10,
+  },
+  savedSection: {
+    marginBottom: 10,
+  },
+  savedLabel: {
+    color: '#8090b0',
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  savedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1a2340',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 6,
+  },
+  savedInfo: {
+    flex: 1,
+  },
+  savedName: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  savedMeta: {
+    color: '#8090b0',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  savedDate: {
+    color: '#6b7fa0',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  savedArrow: {
+    color: '#e6b800',
+    fontSize: 24,
+    fontWeight: '700',
+    marginLeft: 8,
   },
   buttonRow: {
     flexDirection: 'row',
