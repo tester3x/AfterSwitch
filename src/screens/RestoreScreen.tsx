@@ -1,9 +1,9 @@
-import React, { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SectionCard } from '../components/SectionCard';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { GROUP_LABELS } from '../data/settingsRegistry';
-import type { ComparisonResult, SettingDiff } from '../types/profile';
+import type { AppDiff, ComparisonResult, SettingDiff } from '../types/profile';
 import {
   canWriteSettings,
   canWriteSecureSettings,
@@ -24,6 +24,9 @@ export function RestoreScreen({ comparison }: Props) {
   const [restoreStatuses, setRestoreStatuses] = useState<Record<string, RestoreStatus>>({});
   const [hasWriteSettings, setHasWriteSettings] = useState<boolean | null>(null);
   const [hasSecureSettings, setHasSecureSettings] = useState<boolean | null>(null);
+  // Checked state for settings and apps (default: all checked)
+  const [checkedSettings, setCheckedSettings] = useState<Record<string, boolean>>({});
+  const [checkedApps, setCheckedApps] = useState<Record<string, boolean>>({});
 
   // Check permissions on first render
   React.useEffect(() => {
@@ -33,9 +36,52 @@ export function RestoreScreen({ comparison }: Props) {
     })();
   }, []);
 
+  // Initialize checked state when comparison changes
+  React.useEffect(() => {
+    if (!comparison) return;
+    const settingsChecked: Record<string, boolean> = {};
+    for (const diff of comparison.settings) {
+      settingsChecked[diff.key] = true;
+    }
+    setCheckedSettings(settingsChecked);
+
+    const appsChecked: Record<string, boolean> = {};
+    for (const app of comparison.apps) {
+      appsChecked[app.packageName] = true;
+    }
+    setCheckedApps(appsChecked);
+  }, [comparison]);
+
+  const toggleSetting = useCallback((key: string) => {
+    setCheckedSettings((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+
+  const toggleApp = useCallback((packageName: string) => {
+    setCheckedApps((prev) => ({ ...prev, [packageName]: !prev[packageName] }));
+  }, []);
+
+  const toggleAllSettings = useCallback((diffs: SettingDiff[], checked: boolean) => {
+    setCheckedSettings((prev) => {
+      const next = { ...prev };
+      for (const diff of diffs) {
+        next[diff.key] = checked;
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleAllApps = useCallback((checked: boolean) => {
+    setCheckedApps((prev) => {
+      const next = { ...prev };
+      for (const key of Object.keys(next)) {
+        next[key] = checked;
+      }
+      return next;
+    });
+  }, []);
+
   const handleRequestWritePermission = useCallback(async () => {
     await requestWritePermission();
-    // Re-check after user returns (they toggle it in system settings)
     setTimeout(async () => {
       setHasWriteSettings(await canWriteSettings());
     }, 2000);
@@ -47,9 +93,6 @@ export function RestoreScreen({ comparison }: Props) {
     try {
       const [category, ...keyParts] = diff.key.split('.');
       const rawKey = keyParts.join('.');
-      // oldValue is the value from the imported (old) profile — that's what we want to restore
-      // We need the raw value, not the formatted one. Extract from the key.
-      // For now, we write the raw old value from the profile
       let success = false;
 
       if (category === 'system') {
@@ -69,15 +112,23 @@ export function RestoreScreen({ comparison }: Props) {
     }
   }, []);
 
-  const handleRestoreAll = useCallback(async (diffs: SettingDiff[]) => {
-    for (const diff of diffs) {
-      if (restoreStatuses[diff.key] === 'success') continue;
+  const handleRestoreChecked = useCallback(async (diffs: SettingDiff[]) => {
+    const toRestore = diffs.filter(
+      (d) => checkedSettings[d.key] && restoreStatuses[d.key] !== 'success'
+    );
+    for (const diff of toRestore) {
       await handleRestoreSetting(diff);
     }
-  }, [restoreStatuses, handleRestoreSetting]);
+  }, [checkedSettings, restoreStatuses, handleRestoreSetting]);
 
   const handleOpenSettings = useCallback(async (intent: string) => {
     await openSettingsScreen(intent);
+  }, []);
+
+  const handleInstallApp = useCallback((packageName: string) => {
+    Linking.openURL(`market://details?id=${packageName}`).catch(() => {
+      Linking.openURL(`https://play.google.com/store/apps/details?id=${packageName}`);
+    });
   }, []);
 
   if (!comparison || comparison.summary.totalDiffs === 0) {
@@ -100,19 +151,27 @@ export function RestoreScreen({ comparison }: Props) {
     : [];
 
   const restoredCount = Object.values(restoreStatuses).filter((s) => s === 'success').length;
+  const checkedSettingsCount = Object.values(checkedSettings).filter(Boolean).length;
+  const checkedAppsCount = Object.values(checkedApps).filter(Boolean).length;
 
   return (
     <>
       {/* Progress */}
       <SectionCard title="Restore Progress">
         <Text style={styles.progressText}>
-          {restoredCount} / {comparison.summary.totalDiffs} items restored
+          {restoredCount} / {checkedSettingsCount + checkedAppsCount} selected items
         </Text>
         <View style={styles.progressBar}>
           <View
             style={[
               styles.progressFill,
-              { width: `${(restoredCount / comparison.summary.totalDiffs) * 100}%` },
+              {
+                width: `${
+                  checkedSettingsCount + checkedAppsCount > 0
+                    ? (restoredCount / (checkedSettingsCount + checkedAppsCount)) * 100
+                    : 0
+                }%`,
+              },
             ]}
           />
         </View>
@@ -133,17 +192,27 @@ export function RestoreScreen({ comparison }: Props) {
       {autoDiffs.length > 0 && (
         <SectionCard title={`Auto-Restore (${autoDiffs.length})`}>
           <Text style={styles.sectionDescription}>
-            These settings can be applied automatically.
+            These settings can be applied automatically. Uncheck any you want to skip.
           </Text>
+          <View style={styles.selectRow}>
+            <Pressable onPress={() => toggleAllSettings(autoDiffs, true)}>
+              <Text style={styles.selectAllText}>Select All</Text>
+            </Pressable>
+            <Pressable onPress={() => toggleAllSettings(autoDiffs, false)}>
+              <Text style={styles.selectNoneText}>Select None</Text>
+            </Pressable>
+          </View>
           <PrimaryButton
-            label="Restore All"
-            onPress={() => handleRestoreAll(autoDiffs)}
+            label={`Restore ${autoDiffs.filter((d) => checkedSettings[d.key]).length} Checked`}
+            onPress={() => handleRestoreChecked(autoDiffs)}
           />
           {autoDiffs.map((diff) => (
             <RestoreItem
               key={diff.key}
               diff={diff}
               status={restoreStatuses[diff.key] || 'pending'}
+              checked={checkedSettings[diff.key] ?? true}
+              onToggle={() => toggleSetting(diff.key)}
               onRestore={() => handleRestoreSetting(diff)}
               onOpenSettings={() =>
                 diff.settingsIntent && handleOpenSettings(diff.settingsIntent)
@@ -157,17 +226,27 @@ export function RestoreScreen({ comparison }: Props) {
       {hasSecureSettings && secureAutoDiffs.length > 0 && (
         <SectionCard title={`Unlocked Restore (${secureAutoDiffs.length})`}>
           <Text style={styles.sectionDescription}>
-            Desktop companion unlocked these. Auto-restoring secure + global settings.
+            Desktop companion unlocked these. Uncheck any you want to skip.
           </Text>
+          <View style={styles.selectRow}>
+            <Pressable onPress={() => toggleAllSettings(secureAutoDiffs, true)}>
+              <Text style={styles.selectAllText}>Select All</Text>
+            </Pressable>
+            <Pressable onPress={() => toggleAllSettings(secureAutoDiffs, false)}>
+              <Text style={styles.selectNoneText}>Select None</Text>
+            </Pressable>
+          </View>
           <PrimaryButton
-            label="Restore All Unlocked"
-            onPress={() => handleRestoreAll(secureAutoDiffs)}
+            label={`Restore ${secureAutoDiffs.filter((d) => checkedSettings[d.key]).length} Checked`}
+            onPress={() => handleRestoreChecked(secureAutoDiffs)}
           />
           {secureAutoDiffs.map((diff) => (
             <RestoreItem
               key={diff.key}
               diff={diff}
               status={restoreStatuses[diff.key] || 'pending'}
+              checked={checkedSettings[diff.key] ?? true}
+              onToggle={() => toggleSetting(diff.key)}
               onRestore={() => handleRestoreSetting(diff)}
               onOpenSettings={() =>
                 diff.settingsIntent && handleOpenSettings(diff.settingsIntent)
@@ -188,6 +267,8 @@ export function RestoreScreen({ comparison }: Props) {
               key={diff.key}
               diff={diff}
               status={restoreStatuses[diff.key] || 'pending'}
+              checked={checkedSettings[diff.key] ?? true}
+              onToggle={() => toggleSetting(diff.key)}
               onRestore={() => handleRestoreSetting(diff)}
               onOpenSettings={() =>
                 diff.settingsIntent && handleOpenSettings(diff.settingsIntent)
@@ -198,30 +279,65 @@ export function RestoreScreen({ comparison }: Props) {
         </SectionCard>
       )}
 
-      {/* Missing apps */}
+      {/* Missing apps — with checkboxes */}
       {comparison.apps.length > 0 && (
         <SectionCard title={`Missing Apps (${comparison.apps.length})`}>
+          <Text style={styles.sectionDescription}>
+            Apps from your old phone not on this one. Check the ones you want to install.
+          </Text>
+          <View style={styles.selectRow}>
+            <Pressable onPress={() => toggleAllApps(true)}>
+              <Text style={styles.selectAllText}>Select All</Text>
+            </Pressable>
+            <Pressable onPress={() => toggleAllApps(false)}>
+              <Text style={styles.selectNoneText}>Select None</Text>
+            </Pressable>
+          </View>
           {comparison.apps.map((app) => (
-            <View key={app.packageName} style={styles.appRow}>
-              <Text style={styles.appLabel}>{app.label}</Text>
-              <Text style={styles.appPackage}>{app.packageName}</Text>
-            </View>
+            <AppRestoreRow
+              key={app.packageName}
+              app={app}
+              checked={checkedApps[app.packageName] ?? true}
+              onToggle={() => toggleApp(app.packageName)}
+              onInstall={() => handleInstallApp(app.packageName)}
+            />
           ))}
+          <PrimaryButton
+            label={`Install ${checkedAppsCount} Checked Apps`}
+            onPress={() => {
+              const toInstall = comparison.apps.filter((a) => checkedApps[a.packageName]);
+              for (const app of toInstall) {
+                handleInstallApp(app.packageName);
+              }
+            }}
+          />
         </SectionCard>
       )}
     </>
   );
 }
 
+function Checkbox({ checked, onToggle }: { checked: boolean; onToggle: () => void }) {
+  return (
+    <Pressable style={[styles.checkbox, checked && styles.checkboxChecked]} onPress={onToggle}>
+      {checked && <Text style={styles.checkmark}>✓</Text>}
+    </Pressable>
+  );
+}
+
 function RestoreItem({
   diff,
   status,
+  checked,
+  onToggle,
   onRestore,
   onOpenSettings,
   guided,
 }: {
   diff: SettingDiff;
   status: RestoreStatus;
+  checked: boolean;
+  onToggle: () => void;
   onRestore: () => void;
   onOpenSettings: () => void;
   guided?: boolean;
@@ -232,36 +348,68 @@ function RestoreItem({
     status === 'success' ? '#4ade80' : status === 'failed' ? '#f87171' : '#e6b800';
 
   return (
-    <View style={styles.restoreItem}>
+    <View style={[styles.restoreItem, !checked && styles.restoreItemUnchecked]}>
       <View style={styles.restoreHeader}>
-        <Text style={styles.restoreLabel} numberOfLines={1}>
+        <Checkbox checked={checked} onToggle={onToggle} />
+        <Text style={[styles.restoreLabel, !checked && styles.labelDimmed]} numberOfLines={1}>
           {diff.label}
         </Text>
         {statusIcon ? (
           <Text style={[styles.statusIcon, { color: statusColor }]}>{statusIcon}</Text>
         ) : null}
       </View>
-      <View style={styles.restoreValues}>
-        <Text style={styles.oldVal} numberOfLines={1}>
-          Want: {diff.oldValue}
-        </Text>
-        <Text style={styles.newVal} numberOfLines={1}>
-          Have: {diff.newValue}
-        </Text>
+      {checked && (
+        <>
+          <View style={styles.restoreValues}>
+            <Text style={styles.oldVal} numberOfLines={1}>
+              Want: {diff.oldValue}
+            </Text>
+            <Text style={styles.newVal} numberOfLines={1}>
+              Have: {diff.newValue}
+            </Text>
+          </View>
+          {status !== 'success' && (
+            <View style={styles.restoreActions}>
+              {!guided && (
+                <Pressable style={styles.restoreBtn} onPress={onRestore}>
+                  <Text style={styles.restoreBtnText}>Apply</Text>
+                </Pressable>
+              )}
+              {diff.settingsIntent && (
+                <Pressable style={styles.settingsBtn} onPress={onOpenSettings}>
+                  <Text style={styles.settingsBtnText}>Open Settings</Text>
+                </Pressable>
+              )}
+            </View>
+          )}
+        </>
+      )}
+    </View>
+  );
+}
+
+function AppRestoreRow({
+  app,
+  checked,
+  onToggle,
+  onInstall,
+}: {
+  app: AppDiff;
+  checked: boolean;
+  onToggle: () => void;
+  onInstall: () => void;
+}) {
+  return (
+    <View style={[styles.appRow, !checked && styles.restoreItemUnchecked]}>
+      <Checkbox checked={checked} onToggle={onToggle} />
+      <View style={styles.appInfo}>
+        <Text style={[styles.appLabel, !checked && styles.labelDimmed]}>{app.label}</Text>
+        <Text style={styles.appPackage}>{app.packageName}</Text>
       </View>
-      {status !== 'success' && (
-        <View style={styles.restoreActions}>
-          {!guided && (
-            <Pressable style={styles.restoreBtn} onPress={onRestore}>
-              <Text style={styles.restoreBtnText}>Apply</Text>
-            </Pressable>
-          )}
-          {diff.settingsIntent && (
-            <Pressable style={styles.settingsBtn} onPress={onOpenSettings}>
-              <Text style={styles.settingsBtnText}>Open Settings</Text>
-            </Pressable>
-          )}
-        </View>
+      {checked && (
+        <Pressable style={styles.installBtn} onPress={onInstall}>
+          <Text style={styles.installBtnText}>Install</Text>
+        </Pressable>
       )}
     </View>
   );
@@ -301,15 +449,51 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 8,
   },
+  selectRow: {
+    flexDirection: 'row',
+    gap: 16,
+    marginBottom: 8,
+  },
+  selectAllText: {
+    color: '#4ade80',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  selectNoneText: {
+    color: '#6b7fa0',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: '#4a5568',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  checkboxChecked: {
+    backgroundColor: '#4ade80',
+    borderColor: '#4ade80',
+  },
+  checkmark: {
+    color: '#0f1628',
+    fontSize: 14,
+    fontWeight: '700',
+  },
   restoreItem: {
     backgroundColor: '#0f1628',
     borderRadius: 8,
     padding: 10,
     gap: 4,
   },
+  restoreItemUnchecked: {
+    opacity: 0.5,
+  },
   restoreHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
   },
   restoreLabel: {
@@ -318,6 +502,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     flex: 1,
   },
+  labelDimmed: {
+    color: '#6b7fa0',
+  },
   statusIcon: {
     fontSize: 16,
     fontWeight: '700',
@@ -325,6 +512,7 @@ const styles = StyleSheet.create({
   restoreValues: {
     flexDirection: 'row',
     gap: 12,
+    marginLeft: 30,
   },
   oldVal: {
     color: '#60a5fa',
@@ -340,6 +528,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     marginTop: 4,
+    marginLeft: 30,
   },
   restoreBtn: {
     backgroundColor: '#4ade80',
@@ -366,9 +555,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   appRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#0f1628',
     borderRadius: 8,
     padding: 10,
+  },
+  appInfo: {
+    flex: 1,
     gap: 2,
   },
   appLabel: {
@@ -379,5 +573,19 @@ const styles = StyleSheet.create({
   appPackage: {
     color: '#6b7fa0',
     fontSize: 11,
+  },
+  installBtn: {
+    backgroundColor: '#1a2340',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#4ade80',
+    marginLeft: 8,
+  },
+  installBtnText: {
+    color: '#4ade80',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

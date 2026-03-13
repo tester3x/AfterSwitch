@@ -12,9 +12,7 @@ type Props = {
   lastScanTime: string | null;
   onScan: () => void;
   onImport: () => void;
-  onSaveToCloud: () => void;
-  onLoadFromCloud: () => void;
-  cloudSaving: boolean;
+  onExport: () => void;
   savedProfiles: SavedProfileInfo[];
   onSelectSavedProfile: (info: SavedProfileInfo) => void;
 };
@@ -24,9 +22,7 @@ export function HomeScreen({
   lastScanTime,
   onScan,
   onImport,
-  onSaveToCloud,
-  onLoadFromCloud,
-  cloudSaving,
+  onExport,
   savedProfiles,
   onSelectSavedProfile,
 }: Props) {
@@ -85,8 +81,8 @@ export function HomeScreen({
           </View>
           <View style={styles.cloudRow}>
             <PrimaryButton
-              label={cloudSaving ? 'Saving...' : 'Save to Cloud'}
-              onPress={onSaveToCloud}
+              label="Share Profile"
+              onPress={onExport}
             />
           </View>
         </SectionCard>
@@ -133,14 +129,7 @@ export function HomeScreen({
           </View>
         )}
 
-        <View style={styles.buttonRow}>
-          <View style={styles.buttonCol}>
-            <PrimaryButton label="Load from Cloud" onPress={onLoadFromCloud} />
-          </View>
-          <View style={styles.buttonCol}>
-            <PrimaryButton label="Browse Files" onPress={onImport} />
-          </View>
-        </View>
+        <PrimaryButton label="Browse Files" onPress={onImport} />
       </SectionCard>
     </>
   );
@@ -248,12 +237,5 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
     marginLeft: 8,
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  buttonCol: {
-    flex: 1,
   },
 });
