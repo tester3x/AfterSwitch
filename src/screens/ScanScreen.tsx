@@ -79,8 +79,8 @@ export function ScanScreen({ profile, scanning, scanProgress, savedFileName, onE
 
     if (expandedCategory === 'apps') {
       return profile.apps.installed.map((app) => ({
-        key: app.packageName,
-        value: app.label || app.packageName,
+        key: app.label || app.packageName,
+        value: app.packageName,
       }));
     }
 
