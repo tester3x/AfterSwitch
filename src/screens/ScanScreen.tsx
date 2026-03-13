@@ -10,6 +10,8 @@ type Props = {
   scanning: boolean;
   scanProgress: ScanProgress | null;
   savedFileName: string | null;
+  cloudSaving: boolean;
+  cloudSaved: boolean;
   onExport: () => void;
 };
 
@@ -25,7 +27,7 @@ const SCAN_STEPS: Array<{ key: keyof ScanProgress; label: string }> = [
   { key: 'defaults', label: 'Default Apps' },
 ];
 
-export function ScanScreen({ profile, scanning, scanProgress, savedFileName, onExport }: Props) {
+export function ScanScreen({ profile, scanning, scanProgress, savedFileName, cloudSaving, cloudSaved, onExport }: Props) {
   const [expandedCategory, setExpandedCategory] = useState<SettingsCategory | null>(null);
 
   if (scanning && scanProgress) {
@@ -127,6 +129,18 @@ export function ScanScreen({ profile, scanning, scanProgress, savedFileName, onE
           <View style={styles.savedFileBox}>
             <Text style={styles.savedFileLabel}>Saved as</Text>
             <Text style={styles.savedFileNameText}>{savedFileName}</Text>
+          </View>
+        )}
+        {cloudSaving && (
+          <View style={styles.cloudBox}>
+            <ActivityIndicator size="small" color="#60a5fa" />
+            <Text style={styles.cloudSavingText}>Saving to cloud...</Text>
+          </View>
+        )}
+        {cloudSaved && !cloudSaving && (
+          <View style={styles.cloudBox}>
+            <Text style={styles.cloudCheckmark}>☁ ✓</Text>
+            <Text style={styles.cloudSavedText}>Backed up to cloud</Text>
           </View>
         )}
       </SectionCard>
@@ -304,6 +318,31 @@ const styles = StyleSheet.create({
     fontSize: 11,
     flex: 1,
     textAlign: 'right',
+  },
+  cloudBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#0f1628',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#60a5fa',
+  },
+  cloudSavingText: {
+    color: '#60a5fa',
+    fontSize: 13,
+    fontStyle: 'italic',
+  },
+  cloudCheckmark: {
+    color: '#4ade80',
+    fontSize: 16,
+  },
+  cloudSavedText: {
+    color: '#4ade80',
+    fontSize: 13,
+    fontWeight: '600',
   },
   exportText: {
     color: '#b7c1d6',

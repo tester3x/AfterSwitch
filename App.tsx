@@ -27,6 +27,7 @@ export default function App() {
   const [scanning, setScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [cloudSaving, setCloudSaving] = useState(false);
+  const [cloudSaved, setCloudSaved] = useState(false);
   const [savedFileName, setSavedFileName] = useState<string | null>(null);
 
   // Listen for Firebase auth state
@@ -115,9 +116,11 @@ export default function App() {
 
       // Auto-save to cloud (fire-and-forget)
       setCloudSaving(true);
+      setCloudSaved(false);
       saveProfileToCloud(profile)
         .then((id) => {
           setStatusMessage(`Saved locally + cloud (${id})`);
+          setCloudSaved(true);
         })
         .catch((e) => {
           console.log('Cloud save failed:', e);
@@ -242,6 +245,8 @@ export default function App() {
               scanning={scanning}
               scanProgress={scanProgress}
               savedFileName={savedFileName}
+              cloudSaving={cloudSaving}
+              cloudSaved={cloudSaved}
               onExport={handleExport}
             />
           )}
