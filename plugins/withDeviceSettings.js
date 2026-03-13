@@ -429,31 +429,31 @@ function withDeviceSettingsMainApplication(config) {
     }
 
     // Add package registration if not present
-    const registrationLine = "packages.add(DeviceSettingsPackage())";
-    if (!contents.includes(registrationLine)) {
-      // Find the getPackages() method and add after the packages list creation
-      // Look for "packages.add(" pattern or "return packages" and insert before it
-      const returnIdx = contents.indexOf("return packages");
-      if (returnIdx > -1) {
+    // SDK 54 uses: PackageList(this).packages.apply { ... }
+    // Inside .apply{}, the list is `this`, so we call add() directly (not packages.add())
+    const shortReg = "add(DeviceSettingsPackage())";
+    const longReg = "packages.add(DeviceSettingsPackage())";
+    if (!contents.includes(shortReg) && !contents.includes(longReg)) {
+      // Strategy 1: Find .apply { block after PackageList — insert add() inside it
+      const applyMatch = contents.match(/PackageList\(this\)\.packages\.apply\s*\{/);
+      if (applyMatch) {
+        const applyIdx = contents.indexOf(applyMatch[0]);
+        const afterBrace = applyIdx + applyMatch[0].length;
         contents =
-          contents.slice(0, returnIdx) +
-          "      " +
-          registrationLine +
-          "\n      " +
-          contents.slice(returnIdx);
-        console.log("[withDeviceSettings] Added DeviceSettingsPackage registration");
-      } else {
-        // Alternative: look for PackageList and add after
-        const packageListIdx = contents.indexOf("PackageList(");
-        if (packageListIdx > -1) {
-          const afterPackageList = contents.indexOf("\n", packageListIdx);
+          contents.slice(0, afterBrace) +
+          "\n              " + shortReg +
+          contents.slice(afterBrace);
+        console.log("[withDeviceSettings] Added DeviceSettingsPackage in .apply{} block");
+      }
+      // Strategy 2: Old style with mutable packages list + return
+      else {
+        const returnIdx = contents.indexOf("return packages");
+        if (returnIdx > -1) {
           contents =
-            contents.slice(0, afterPackageList + 1) +
-            "      " +
-            registrationLine +
-            "\n" +
-            contents.slice(afterPackageList + 1);
-          console.log("[withDeviceSettings] Added DeviceSettingsPackage registration (alt)");
+            contents.slice(0, returnIdx) +
+            "      " + longReg + "\n      " +
+            contents.slice(returnIdx);
+          console.log("[withDeviceSettings] Added DeviceSettingsPackage before return");
         }
       }
     }
