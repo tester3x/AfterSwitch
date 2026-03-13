@@ -5,7 +5,7 @@
  * Profiles saved to app documents under "profiles/" with readable names.
  */
 
-import * as FileSystem from 'expo-file-system';
+import * as LegacyFileSystem from 'expo-file-system/legacy';
 import { File, Directory, Paths } from 'expo-file-system/next';
 import * as Sharing from 'expo-sharing';
 import type { DeviceProfile } from '../types/profile';
@@ -131,8 +131,8 @@ export function loadProfileFromPath(filePath: string): DeviceProfile {
  * Used when user taps a JSON file in another app and it opens in AfterSwitch.
  */
 export async function importProfileFromUri(uri: string): Promise<DeviceProfile> {
-  // content:// URIs need the base FileSystem API, not the /next File class
-  const content = await FileSystem.readAsStringAsync(uri);
+  // content:// URIs need the legacy FileSystem API, not the /next File class
+  const content = await LegacyFileSystem.readAsStringAsync(uri);
 
   let parsed: any;
   try {
