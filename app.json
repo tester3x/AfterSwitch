@@ -25,6 +25,7 @@
         "android.permission.WRITE_SETTINGS",
         "android.permission.QUERY_ALL_PACKAGES"
       ],
+      "googleServicesFile": "./google-services.json",
       "intentFilters": [
         {
           "action": "VIEW",
@@ -37,9 +38,8 @@
       ]
     },
     "plugins": [
-      [
-        "./plugins/withDeviceSettings"
-      ]
+      "./plugins/withDeviceSettings",
+      "@react-native-google-signin/google-signin"
     ],
     "extra": {
       "eas": {

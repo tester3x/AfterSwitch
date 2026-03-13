@@ -1,10 +1,9 @@
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { SectionCard } from '../components/SectionCard';
 import { InfoRow } from '../components/InfoRow';
 import type { DeviceProfile } from '../types/profile';
-import type { SavedProfileInfo } from '../services/profileIO';
 import { isNativeModuleAvailable } from '../services/settingsReader';
 
 type Props = {
@@ -12,11 +11,9 @@ type Props = {
   lastScanTime: string | null;
   onScan: () => void;
   onExport: () => void;
-  onSaveToCloud: () => void;
-  onLoadFromCloud: () => void;
   cloudSaving: boolean;
-  savedProfiles: SavedProfileInfo[];
-  onSelectSavedProfile: (info: SavedProfileInfo) => void;
+  userName: string | null;
+  onSignOut: () => void;
 };
 
 export function HomeScreen({
@@ -24,22 +21,32 @@ export function HomeScreen({
   lastScanTime,
   onScan,
   onExport,
-  onSaveToCloud,
-  onLoadFromCloud,
   cloudSaving,
-  savedProfiles,
-  onSelectSavedProfile,
+  userName,
+  onSignOut,
 }: Props) {
   const hasNative = isNativeModuleAvailable();
 
   return (
     <>
+      {userName && (
+        <SectionCard title="Account">
+          <View style={styles.accountRow}>
+            <Text style={styles.accountName}>{userName}</Text>
+            <PrimaryButton label="Sign Out" onPress={onSignOut} />
+          </View>
+        </SectionCard>
+      )}
+
       <SectionCard title="Scan This Phone">
         <Text style={styles.description}>
           Capture every setting on this device — display, keyboard, sound, navigation,
           accessibility, default apps, and Samsung-specific options.
         </Text>
         <PrimaryButton label="Scan Device Settings" onPress={onScan} />
+        {cloudSaving && (
+          <Text style={styles.cloudStatus}>Saving to cloud...</Text>
+        )}
         {lastScanTime && (
           <Text style={styles.lastScan}>
             Last scan: {new Date(lastScanTime).toLocaleString()}
@@ -83,66 +90,18 @@ export function HomeScreen({
               label="Apps"
             />
           </View>
-          <View style={styles.cloudRow}>
-            <View style={styles.buttonRow}>
-              <View style={styles.buttonCol}>
-                <PrimaryButton label="Share Profile" onPress={onExport} />
-              </View>
-              <View style={styles.buttonCol}>
-                <PrimaryButton
-                  label={cloudSaving ? 'Saving...' : 'Save to Cloud'}
-                  onPress={onSaveToCloud}
-                />
-              </View>
-            </View>
+          <View style={styles.exportRow}>
+            <PrimaryButton label="Share Profile" onPress={onExport} />
           </View>
         </SectionCard>
       )}
 
-      <SectionCard title="Restore a Profile">
+      <SectionCard title="Compare & Restore">
         <Text style={styles.description}>
-          Load a saved profile to compare and restore your settings — whether
-          you switched phones, did a factory reset, or just need to undo changes.
+          Use the Compare tab to see differences, or the Restore tab to apply settings from
+          your old phone. Your profiles are saved in the cloud automatically.
         </Text>
-
-        {/* Saved profiles list */}
-        {savedProfiles.length > 0 && (
-          <View style={styles.savedSection}>
-            <Text style={styles.savedLabel}>Saved Profiles</Text>
-            {savedProfiles.map((sp) => (
-              <TouchableOpacity
-                key={sp.filePath}
-                style={styles.savedRow}
-                onPress={() => onSelectSavedProfile(sp)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.savedInfo}>
-                  <Text style={styles.savedName}>{sp.deviceName}</Text>
-                  <Text style={styles.savedMeta}>
-                    {sp.manufacturer ? sp.manufacturer + ' · ' : ''}
-                    {sp.settingsCount} settings · {sp.appsCount} apps
-                  </Text>
-                  <Text style={styles.savedFileName}>{sp.fileName}</Text>
-                  {sp.exportedAt ? (
-                    <Text style={styles.savedDate}>
-                      {new Date(sp.exportedAt).toLocaleDateString(undefined, {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                        hour: 'numeric',
-                        minute: '2-digit',
-                      })}
-                    </Text>
-                  ) : null}
-                </View>
-                <Text style={styles.savedArrow}>›</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
-        <PrimaryButton label="Load from Cloud" onPress={onLoadFromCloud} />
-        <Text style={styles.fileHint}>
+        <Text style={styles.hint}>
           Tip: Tap an AfterSwitch JSON from Google Drive, email, or your file manager
           — it imports automatically.
         </Text>
@@ -171,6 +130,12 @@ const styles = StyleSheet.create({
     color: '#6b7fa0',
     fontSize: 12,
     marginTop: 4,
+  },
+  cloudStatus: {
+    color: '#60a5fa',
+    fontSize: 12,
+    marginTop: 4,
+    fontStyle: 'italic',
   },
   badge: {
     backgroundColor: '#2a1a00',
@@ -208,69 +173,24 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 2,
   },
-  cloudRow: {
+  exportRow: {
     marginTop: 10,
   },
-  savedSection: {
-    marginBottom: 10,
-  },
-  savedLabel: {
-    color: '#8090b0',
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 6,
-  },
-  savedRow: {
+  accountRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1a2340',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 6,
+    justifyContent: 'space-between',
   },
-  savedInfo: {
+  accountName: {
+    color: '#b7c1d6',
+    fontSize: 14,
     flex: 1,
   },
-  savedName: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  savedMeta: {
-    color: '#8090b0',
-    fontSize: 12,
-    marginTop: 2,
-  },
-  savedFileName: {
-    color: '#4a5a7a',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  savedDate: {
-    color: '#6b7fa0',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  savedArrow: {
-    color: '#e6b800',
-    fontSize: 24,
-    fontWeight: '700',
-    marginLeft: 8,
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  buttonCol: {
-    flex: 1,
-  },
-  fileHint: {
+  hint: {
     color: '#4a5a7a',
     fontSize: 11,
     fontStyle: 'italic',
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: 4,
   },
 });

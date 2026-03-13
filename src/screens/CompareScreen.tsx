@@ -1,20 +1,19 @@
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SectionCard } from '../components/SectionCard';
+import { CloudProfileList } from '../components/CloudProfileList';
 import { GROUP_LABELS } from '../data/settingsRegistry';
 import { groupDiffs } from '../services/profileCompare';
 import type { ComparisonResult, DeviceProfile, SettingDiff, AppDiff, SettingGroup } from '../types/profile';
-import type { SavedProfileInfo } from '../services/profileIO';
 
 type Props = {
   currentProfile: DeviceProfile | null;
   importedProfile: DeviceProfile | null;
   comparison: ComparisonResult | null;
-  savedProfiles: SavedProfileInfo[];
-  onSelectSavedProfile: (info: SavedProfileInfo) => void;
+  onSelectCloudProfile: (profile: DeviceProfile) => void;
 };
 
-export function CompareScreen({ currentProfile, importedProfile, comparison, savedProfiles, onSelectSavedProfile }: Props) {
+export function CompareScreen({ currentProfile, importedProfile, comparison, onSelectCloudProfile }: Props) {
   if (!importedProfile || !comparison) {
     return (
       <>
@@ -24,39 +23,9 @@ export function CompareScreen({ currentProfile, importedProfile, comparison, sav
           </Text>
         </SectionCard>
 
-        {savedProfiles.length > 0 && (
-          <SectionCard title="Saved Profiles">
-            {savedProfiles.map((sp) => (
-              <TouchableOpacity
-                key={sp.filePath}
-                style={styles.savedRow}
-                onPress={() => onSelectSavedProfile(sp)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.savedInfo}>
-                  <Text style={styles.savedName}>{sp.deviceName}</Text>
-                  <Text style={styles.savedMeta}>
-                    {sp.manufacturer ? sp.manufacturer + ' · ' : ''}
-                    {sp.settingsCount} settings · {sp.appsCount} apps
-                  </Text>
-                  {sp.exportedAt ? (
-                    <Text style={styles.savedDate}>
-                      {new Date(sp.exportedAt).toLocaleDateString(undefined, {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                        hour: 'numeric',
-                        minute: '2-digit',
-                      })}
-                    </Text>
-                  ) : null}
-                </View>
-                <Text style={styles.savedArrow}>›</Text>
-              </TouchableOpacity>
-            ))}
-          </SectionCard>
-        )}
-
+        <SectionCard title="Your Profiles">
+          <CloudProfileList onSelect={onSelectCloudProfile} />
+        </SectionCard>
       </>
     );
   }
@@ -251,37 +220,5 @@ const styles = StyleSheet.create({
     color: '#6b7fa0',
     fontSize: 11,
     fontStyle: 'italic',
-  },
-  savedRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1a2340',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 6,
-  },
-  savedInfo: {
-    flex: 1,
-  },
-  savedName: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  savedMeta: {
-    color: '#8090b0',
-    fontSize: 12,
-    marginTop: 2,
-  },
-  savedDate: {
-    color: '#6b7fa0',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  savedArrow: {
-    color: '#e6b800',
-    fontSize: 24,
-    fontWeight: '700',
-    marginLeft: 8,
   },
 });

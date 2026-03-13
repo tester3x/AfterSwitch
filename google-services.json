@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "559487114498",
+    "firebase_url": "https://wellbuilt-sync-default-rtdb.firebaseio.com",
+    "project_id": "wellbuilt-sync",
+    "storage_bucket": "wellbuilt-sync.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:559487114498:android:148619dc95e45ad45bf61b",
+        "android_client_info": {
+          "package_name": "com.afterswitch.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCD2nZH7mT3fNhNI-YM7yYPcSVEuCHk_-E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

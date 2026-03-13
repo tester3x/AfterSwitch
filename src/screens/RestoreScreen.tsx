@@ -1,10 +1,11 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Linking, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SectionCard } from '../components/SectionCard';
+import { CloudProfileList } from '../components/CloudProfileList';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { GROUP_LABELS } from '../data/settingsRegistry';
 import type { AppDiff, ComparisonResult, SettingDiff } from '../types/profile';
-import type { SavedProfileInfo } from '../services/profileIO';
+import type { DeviceProfile } from '../types/profile';
 import {
   canWriteSettings,
   canWriteSecureSettings,
@@ -17,21 +18,18 @@ import {
 
 type Props = {
   comparison: ComparisonResult | null;
-  savedProfiles: SavedProfileInfo[];
-  onSelectSavedProfile: (info: SavedProfileInfo) => void;
+  onSelectCloudProfile: (profile: DeviceProfile) => void;
 };
 
 type RestoreStatus = 'pending' | 'restoring' | 'success' | 'failed';
 
-export function RestoreScreen({ comparison, savedProfiles, onSelectSavedProfile }: Props) {
+export function RestoreScreen({ comparison, onSelectCloudProfile }: Props) {
   const [restoreStatuses, setRestoreStatuses] = useState<Record<string, RestoreStatus>>({});
   const [hasWriteSettings, setHasWriteSettings] = useState<boolean | null>(null);
   const [hasSecureSettings, setHasSecureSettings] = useState<boolean | null>(null);
-  // Checked state for settings and apps (default: all checked)
   const [checkedSettings, setCheckedSettings] = useState<Record<string, boolean>>({});
   const [checkedApps, setCheckedApps] = useState<Record<string, boolean>>({});
 
-  // Check permissions on first render
   React.useEffect(() => {
     (async () => {
       setHasWriteSettings(await canWriteSettings());
@@ -39,7 +37,6 @@ export function RestoreScreen({ comparison, savedProfiles, onSelectSavedProfile 
     })();
   }, []);
 
-  // Initialize checked state when comparison changes
   React.useEffect(() => {
     if (!comparison) return;
     const settingsChecked: Record<string, boolean> = {};
@@ -139,32 +136,13 @@ export function RestoreScreen({ comparison, savedProfiles, onSelectSavedProfile 
       <>
         <SectionCard title="Load a Profile to Restore">
           <Text style={styles.emptyText}>
-            Import your old phone's profile to see what's different and restore settings.
+            Select a profile from the cloud to see what's different and restore settings.
           </Text>
         </SectionCard>
 
-        {savedProfiles.length > 0 && (
-          <SectionCard title="Saved Profiles">
-            {savedProfiles.map((sp) => (
-              <TouchableOpacity
-                key={sp.filePath}
-                style={styles.savedRow}
-                onPress={() => onSelectSavedProfile(sp)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.savedInfo}>
-                  <Text style={styles.savedName}>{sp.deviceName}</Text>
-                  <Text style={styles.savedMeta}>
-                    {sp.manufacturer ? sp.manufacturer + ' · ' : ''}
-                    {sp.settingsCount} settings · {sp.appsCount} apps
-                  </Text>
-                </View>
-                <Text style={styles.savedArrow}>›</Text>
-              </TouchableOpacity>
-            ))}
-          </SectionCard>
-        )}
-
+        <SectionCard title="Your Profiles">
+          <CloudProfileList onSelect={onSelectCloudProfile} />
+        </SectionCard>
       </>
     );
   }
@@ -179,7 +157,6 @@ export function RestoreScreen({ comparison, savedProfiles, onSelectSavedProfile 
     );
   }
 
-  // Split diffs by restore type
   const autoDiffs = comparison.settings.filter((d) => d.restoreType === 'auto');
   const guidedDiffs = comparison.settings.filter((d) => d.restoreType === 'guided');
   const secureAutoDiffs = hasSecureSettings
@@ -192,7 +169,6 @@ export function RestoreScreen({ comparison, savedProfiles, onSelectSavedProfile 
 
   return (
     <>
-      {/* Progress */}
       <SectionCard title="Restore Progress">
         <Text style={styles.progressText}>
           {restoredCount} / {checkedSettingsCount + checkedAppsCount} selected items
@@ -213,7 +189,6 @@ export function RestoreScreen({ comparison, savedProfiles, onSelectSavedProfile 
         </View>
       </SectionCard>
 
-      {/* Permission check */}
       {hasWriteSettings === false && autoDiffs.length > 0 && (
         <SectionCard title="Permission Needed">
           <Text style={styles.permissionText}>
@@ -224,7 +199,6 @@ export function RestoreScreen({ comparison, savedProfiles, onSelectSavedProfile 
         </SectionCard>
       )}
 
-      {/* Auto-restore section */}
       {autoDiffs.length > 0 && (
         <SectionCard title={`Auto-Restore (${autoDiffs.length})`}>
           <Text style={styles.sectionDescription}>
@@ -258,7 +232,6 @@ export function RestoreScreen({ comparison, savedProfiles, onSelectSavedProfile 
         </SectionCard>
       )}
 
-      {/* Secure auto-restore (only if WRITE_SECURE_SETTINGS granted) */}
       {hasSecureSettings && secureAutoDiffs.length > 0 && (
         <SectionCard title={`Unlocked Restore (${secureAutoDiffs.length})`}>
           <Text style={styles.sectionDescription}>
@@ -292,7 +265,6 @@ export function RestoreScreen({ comparison, savedProfiles, onSelectSavedProfile 
         </SectionCard>
       )}
 
-      {/* Guided restore section */}
       {!hasSecureSettings && guidedDiffs.length > 0 && (
         <SectionCard title={`Guided Restore (${guidedDiffs.length})`}>
           <Text style={styles.sectionDescription}>
@@ -315,7 +287,6 @@ export function RestoreScreen({ comparison, savedProfiles, onSelectSavedProfile 
         </SectionCard>
       )}
 
-      {/* Missing apps — with checkboxes */}
       {comparison.apps.length > 0 && (
         <SectionCard title={`Missing Apps (${comparison.apps.length})`}>
           <Text style={styles.sectionDescription}>
@@ -456,33 +427,6 @@ const styles = StyleSheet.create({
     color: '#8090b0',
     fontSize: 14,
     lineHeight: 20,
-  },
-  savedRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1a2340',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 6,
-  },
-  savedInfo: {
-    flex: 1,
-  },
-  savedName: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  savedMeta: {
-    color: '#8090b0',
-    fontSize: 12,
-    marginTop: 2,
-  },
-  savedArrow: {
-    color: '#e6b800',
-    fontSize: 24,
-    fontWeight: '700',
-    marginLeft: 8,
   },
   progressText: {
     color: '#e6b800',

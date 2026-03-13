@@ -1,7 +1,7 @@
 // AfterSwitch Profile Schema v2
 // Captures full device settings snapshot for migration
 
-export type AppTab = 'home' | 'scan' | 'compare' | 'restore' | 'cloud';
+export type AppTab = 'home' | 'scan' | 'compare' | 'restore';
 
 export type AppDefault = {
   packageName: string;

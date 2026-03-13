@@ -37,7 +37,7 @@ const COLLECTION = 'afterswitch_profiles';
  * Profile ID is based on device model + timestamp for uniqueness.
  */
 export async function saveProfileToCloud(profile: DeviceProfile): Promise<string> {
-  const user = await ensureAuth();
+  const user = ensureAuth();
 
   const safeModel = profile.device.model.replace(/[^a-zA-Z0-9-_]/g, '-');
   const profileId = `${safeModel}-${Date.now()}`;
@@ -67,7 +67,7 @@ export async function saveProfileToCloud(profile: DeviceProfile): Promise<string
  * Returns metadata only (not the full profile data).
  */
 export async function listCloudProfiles(): Promise<CloudProfileMeta[]> {
-  const user = await ensureAuth();
+  const user = ensureAuth();
 
   const profilesRef = collection(db, COLLECTION, user.uid, 'profiles');
   const q = query(profilesRef, orderBy('savedAt', 'desc'));
@@ -92,7 +92,7 @@ export async function listCloudProfiles(): Promise<CloudProfileMeta[]> {
  * Load a specific profile from the cloud by ID.
  */
 export async function loadCloudProfile(profileId: string): Promise<DeviceProfile | null> {
-  const user = await ensureAuth();
+  const user = ensureAuth();
 
   const docRef = doc(db, COLLECTION, user.uid, 'profiles', profileId);
   const snapshot = await getDoc(docRef);
@@ -107,7 +107,7 @@ export async function loadCloudProfile(profileId: string): Promise<DeviceProfile
  * Delete a profile from the cloud.
  */
 export async function deleteCloudProfile(profileId: string): Promise<void> {
-  const user = await ensureAuth();
+  const user = ensureAuth();
 
   const docRef = doc(db, COLLECTION, user.uid, 'profiles', profileId);
   await deleteDoc(docRef);

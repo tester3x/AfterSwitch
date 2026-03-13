@@ -2,23 +2,24 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Image, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SignInScreen } from './src/screens/SignInScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { ScanScreen } from './src/screens/ScanScreen';
 import { CompareScreen } from './src/screens/CompareScreen';
 import { RestoreScreen } from './src/screens/RestoreScreen';
-import { CloudProfilesScreen } from './src/screens/CloudProfilesScreen';
 import type { AppTab, ComparisonResult, DeviceProfile, ScanProgress } from './src/types/profile';
 import { buildProfile } from './src/services/profileBuilder';
 import { compareProfiles } from './src/services/profileCompare';
-import { exportProfileJson, saveProfileLocally, importProfileFromUri, loadProfileFromPath, listSavedProfiles } from './src/services/profileIO';
-import type { SavedProfileInfo } from './src/services/profileIO';
+import { exportProfileJson, saveProfileLocally, importProfileFromUri } from './src/services/profileIO';
 import { saveProfileToCloud } from './src/services/cloudProfiles';
+import { onAuthChanged, signOutUser, type User } from './src/services/firebase';
 import { TabButton } from './src/components/TabButton';
 
 const STORAGE_KEY_PROFILE = 'afterswitch_current_profile';
 const STORAGE_KEY_IMPORTED = 'afterswitch_imported_profile';
 
 export default function App() {
+  const [user, setUser] = useState<User | null | undefined>(undefined); // undefined = loading
   const [activeTab, setActiveTab] = useState<AppTab>('home');
   const [currentProfile, setCurrentProfile] = useState<DeviceProfile | null>(null);
   const [importedProfile, setImportedProfile] = useState<DeviceProfile | null>(null);
@@ -26,26 +27,31 @@ export default function App() {
   const [scanning, setScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [cloudSaving, setCloudSaving] = useState(false);
-  const [savedProfiles, setSavedProfiles] = useState<SavedProfileInfo[]>([]);
   const [savedFileName, setSavedFileName] = useState<string | null>(null);
+
+  // Listen for Firebase auth state
+  useEffect(() => {
+    const unsub = onAuthChanged((u) => {
+      setUser(u);
+    });
+    return unsub;
+  }, []);
 
   // Handle incoming JSON file (from intent — user tapped a JSON in another app)
   const handleIncomingFile = useCallback(async (url: string) => {
     if (!url) return;
-    // Only handle content:// and file:// URIs (not afterswitch:// scheme links)
     if (!url.startsWith('content://') && !url.startsWith('file://')) return;
 
     try {
       const profile = await importProfileFromUri(url);
       setImportedProfile(profile);
       await AsyncStorage.setItem(STORAGE_KEY_IMPORTED, JSON.stringify(profile));
-      refreshSavedProfiles();
       setStatusMessage(`Imported profile from ${profile.device.nickname}.`);
       setActiveTab('compare');
     } catch (error) {
       setStatusMessage(`Import failed: ${String(error)}`);
     }
-  }, [refreshSavedProfiles]);
+  }, []);
 
   // Load saved profiles on mount + check for incoming file intent
   useEffect(() => {
@@ -59,30 +65,22 @@ export default function App() {
         if (savedImported) {
           setImportedProfile(JSON.parse(savedImported));
         }
-        // Load saved profile files list
-        setSavedProfiles(listSavedProfiles());
       } catch (e) {
         console.log('Failed to load saved profiles:', e);
       }
 
-      // Check if app was opened by tapping a JSON file (cold start)
       const initialUrl = await Linking.getInitialURL();
       if (initialUrl) {
         handleIncomingFile(initialUrl);
       }
     })();
 
-    // Listen for JSON files opened while app is already running (warm start)
     const sub = Linking.addEventListener('url', ({ url }) => {
       handleIncomingFile(url);
     });
 
     return () => sub.remove();
   }, [handleIncomingFile]);
-
-  const refreshSavedProfiles = useCallback(() => {
-    setSavedProfiles(listSavedProfiles());
-  }, []);
 
   // Compare profiles whenever either changes
   const comparison: ComparisonResult | null = useMemo(() => {
@@ -109,13 +107,25 @@ export default function App() {
       });
       setCurrentProfile(profile);
       await AsyncStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(profile));
-      // Auto-save to profiles directory
+      // Save locally
       const savedUri = saveProfileLocally(profile);
-      refreshSavedProfiles();
-
       const fileName = decodeURIComponent(savedUri.split('/').pop() || 'profile');
       setSavedFileName(fileName);
       setStatusMessage(`Saved: ${fileName}`);
+
+      // Auto-save to cloud (fire-and-forget)
+      setCloudSaving(true);
+      saveProfileToCloud(profile)
+        .then((id) => {
+          setStatusMessage(`Saved locally + cloud (${id})`);
+        })
+        .catch((e) => {
+          console.log('Cloud save failed:', e);
+          setStatusMessage(`Saved locally. Cloud save failed.`);
+        })
+        .finally(() => {
+          setCloudSaving(false);
+        });
     } catch (error) {
       setStatusMessage(`Scan failed: ${String(error)}`);
     } finally {
@@ -137,45 +147,45 @@ export default function App() {
     }
   }, [currentProfile]);
 
-  const handleSaveToCloud = useCallback(async () => {
-    if (!currentProfile) {
-      setStatusMessage('No profile to save. Scan first.');
-      return;
-    }
-    setCloudSaving(true);
-    try {
-      const profileId = await saveProfileToCloud(currentProfile);
-      setStatusMessage(`Saved to cloud: ${profileId}`);
-    } catch (error) {
-      setStatusMessage(`Cloud save failed: ${String(error)}`);
-    } finally {
-      setCloudSaving(false);
-    }
-  }, [currentProfile]);
-
-  const handleLoadFromCloud = useCallback(() => {
-    setActiveTab('cloud');
-  }, []);
-
-  const handleCloudSelect = useCallback(async (profile: DeviceProfile) => {
+  const handleSelectCloudProfile = useCallback(async (profile: DeviceProfile) => {
     setImportedProfile(profile);
     await AsyncStorage.setItem(STORAGE_KEY_IMPORTED, JSON.stringify(profile));
-    setStatusMessage(`Loaded cloud profile from ${profile.device.nickname}.`);
+    setStatusMessage(`Loaded profile from ${profile.device.nickname}.`);
+    // Save locally as cache
+    saveProfileLocally(profile);
     setActiveTab('compare');
   }, []);
 
-
-  const handleSelectSavedProfile = useCallback(async (info: SavedProfileInfo) => {
+  const handleSignOut = useCallback(async () => {
     try {
-      const profile = await loadProfileFromPath(info.filePath);
-      setImportedProfile(profile);
-      await AsyncStorage.setItem(STORAGE_KEY_IMPORTED, JSON.stringify(profile));
-      setStatusMessage(`Loaded profile from ${profile.device.nickname}.`);
-      setActiveTab('compare');
-    } catch (error) {
-      setStatusMessage(`Failed to load profile: ${String(error)}`);
+      await signOutUser();
+      setUser(null);
+    } catch (e) {
+      setStatusMessage(`Sign out failed: ${String(e)}`);
     }
   }, []);
+
+  // Loading state while checking auth
+  if (user === undefined) {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.loadingContainer}>
+            <Image source={require('./assets/icon.png')} style={styles.loadingIcon} />
+          </View>
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+
+  // Not signed in — show sign-in screen
+  if (!user) {
+    return (
+      <SafeAreaProvider>
+        <SignInScreen onSignedIn={() => {}} />
+      </SafeAreaProvider>
+    );
+  }
 
   return (
     <SafeAreaProvider>
@@ -212,11 +222,6 @@ export default function App() {
             active={activeTab === 'restore'}
             onPress={() => setActiveTab('restore')}
           />
-          <TabButton
-            label="Cloud"
-            active={activeTab === 'cloud'}
-            onPress={() => setActiveTab('cloud')}
-          />
         </View>
 
         <ScrollView contentContainerStyle={styles.content}>
@@ -226,11 +231,9 @@ export default function App() {
               lastScanTime={currentProfile?.exportedAt ?? null}
               onScan={handleScan}
               onExport={handleExport}
-              onSaveToCloud={handleSaveToCloud}
-              onLoadFromCloud={handleLoadFromCloud}
               cloudSaving={cloudSaving}
-              savedProfiles={savedProfiles}
-              onSelectSavedProfile={handleSelectSavedProfile}
+              userName={user.displayName || user.email || 'Signed in'}
+              onSignOut={handleSignOut}
             />
           )}
           {activeTab === 'scan' && (
@@ -247,21 +250,13 @@ export default function App() {
               currentProfile={currentProfile}
               importedProfile={importedProfile}
               comparison={comparison}
-              savedProfiles={savedProfiles}
-              onSelectSavedProfile={handleSelectSavedProfile}
+              onSelectCloudProfile={handleSelectCloudProfile}
             />
           )}
           {activeTab === 'restore' && (
             <RestoreScreen
               comparison={comparison}
-              savedProfiles={savedProfiles}
-              onSelectSavedProfile={handleSelectSavedProfile}
-            />
-          )}
-          {activeTab === 'cloud' && (
-            <CloudProfilesScreen
-              onSelect={handleCloudSelect}
-              onBack={() => setActiveTab('home')}
+              onSelectCloudProfile={handleSelectCloudProfile}
             />
           )}
         </ScrollView>
@@ -278,6 +273,17 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#0b1020',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 14,
+    opacity: 0.6,
   },
   header: {
     paddingHorizontal: 18,

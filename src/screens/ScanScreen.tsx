@@ -1,5 +1,5 @@
-import React from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import React, { useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { SectionCard } from '../components/SectionCard';
 import { InfoRow } from '../components/InfoRow';
@@ -13,6 +13,8 @@ type Props = {
   onExport: () => void;
 };
 
+type SettingsCategory = 'system' | 'secure' | 'global' | 'samsung' | 'apps' | 'defaults';
+
 const SCAN_STEPS: Array<{ key: keyof ScanProgress; label: string }> = [
   { key: 'device', label: 'Device Info' },
   { key: 'system', label: 'System Settings' },
@@ -24,6 +26,8 @@ const SCAN_STEPS: Array<{ key: keyof ScanProgress; label: string }> = [
 ];
 
 export function ScanScreen({ profile, scanning, scanProgress, savedFileName, onExport }: Props) {
+  const [expandedCategory, setExpandedCategory] = useState<SettingsCategory | null>(null);
+
   if (scanning && scanProgress) {
     return (
       <SectionCard title="Scanning Device...">
@@ -66,16 +70,55 @@ export function ScanScreen({ profile, scanning, scanProgress, savedFileName, onE
   const appCount = profile.apps.installed.length;
   const defaultsCount = Object.keys(profile.defaults).length;
 
+  const toggleCategory = (cat: SettingsCategory) => {
+    setExpandedCategory((prev) => (prev === cat ? null : cat));
+  };
+
+  const getExpandedItems = (): Array<{ key: string; value: string }> => {
+    if (!expandedCategory) return [];
+
+    if (expandedCategory === 'apps') {
+      return profile.apps.installed.map((app) => ({
+        key: app.packageName,
+        value: app.label || app.packageName,
+      }));
+    }
+
+    if (expandedCategory === 'defaults') {
+      return Object.entries(profile.defaults).map(([key, val]) => ({
+        key,
+        value: val ? val.label || val.packageName : '(none)',
+      }));
+    }
+
+    const settings = profile.settings[expandedCategory];
+    return Object.entries(settings).map(([key, value]) => ({
+      key,
+      value: String(value),
+    }));
+  };
+
+  const expandedItems = getExpandedItems();
+  const expandedLabel =
+    expandedCategory === 'apps'
+      ? 'Installed Apps'
+      : expandedCategory === 'defaults'
+        ? 'Default Apps'
+        : expandedCategory
+          ? expandedCategory.charAt(0).toUpperCase() + expandedCategory.slice(1) + ' Settings'
+          : '';
+
   return (
     <>
       <SectionCard title="Scan Complete">
+        <Text style={styles.tapHint}>Tap a category to see its contents</Text>
         <View style={styles.summaryGrid}>
-          <SummaryItem count={systemCount} label="System" />
-          <SummaryItem count={secureCount} label="Secure" />
-          <SummaryItem count={globalCount} label="Global" />
-          <SummaryItem count={samsungCount} label="Samsung" />
-          <SummaryItem count={appCount} label="Apps" />
-          <SummaryItem count={defaultsCount} label="Defaults" />
+          <SummaryItem count={systemCount} label="System" active={expandedCategory === 'system'} onPress={() => toggleCategory('system')} />
+          <SummaryItem count={secureCount} label="Secure" active={expandedCategory === 'secure'} onPress={() => toggleCategory('secure')} />
+          <SummaryItem count={globalCount} label="Global" active={expandedCategory === 'global'} onPress={() => toggleCategory('global')} />
+          <SummaryItem count={samsungCount} label="Samsung" active={expandedCategory === 'samsung'} onPress={() => toggleCategory('samsung')} />
+          <SummaryItem count={appCount} label="Apps" active={expandedCategory === 'apps'} onPress={() => toggleCategory('apps')} />
+          <SummaryItem count={defaultsCount} label="Defaults" active={expandedCategory === 'defaults'} onPress={() => toggleCategory('defaults')} />
         </View>
         <Text style={styles.totalText}>
           {totalSettings} settings + {appCount} apps captured
@@ -87,6 +130,20 @@ export function ScanScreen({ profile, scanning, scanProgress, savedFileName, onE
           </View>
         )}
       </SectionCard>
+
+      {expandedCategory && expandedItems.length > 0 && (
+        <SectionCard title={`${expandedLabel} (${expandedItems.length})`}>
+          <Pressable onPress={() => setExpandedCategory(null)}>
+            <Text style={styles.collapseHint}>Tap to close</Text>
+          </Pressable>
+          {expandedItems.map((item) => (
+            <View key={item.key} style={styles.settingRow}>
+              <Text style={styles.settingKey} numberOfLines={1}>{item.key}</Text>
+              <Text style={styles.settingValue} numberOfLines={1}>{item.value}</Text>
+            </View>
+          ))}
+        </SectionCard>
+      )}
 
       <SectionCard title="Device" subtitle={profile.device.nickname}>
         <InfoRow label="Manufacturer" value={profile.device.manufacturer} />
@@ -109,12 +166,25 @@ export function ScanScreen({ profile, scanning, scanProgress, savedFileName, onE
   );
 }
 
-function SummaryItem({ count, label }: { count: number; label: string }) {
+function SummaryItem({
+  count,
+  label,
+  active,
+  onPress,
+}: {
+  count: number;
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
   return (
-    <View style={styles.summaryItem}>
-      <Text style={styles.summaryCount}>{count}</Text>
-      <Text style={styles.summaryLabel}>{label}</Text>
-    </View>
+    <Pressable
+      style={[styles.summaryItem, active && styles.summaryItemActive]}
+      onPress={onPress}
+    >
+      <Text style={[styles.summaryCount, active && styles.summaryCountActive]}>{count}</Text>
+      <Text style={[styles.summaryLabel, active && styles.summaryLabelActive]}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -144,6 +214,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
+  tapHint: {
+    color: '#4a5a7a',
+    fontSize: 11,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
   summaryGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -155,16 +232,27 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingVertical: 12,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  summaryItemActive: {
+    borderColor: '#e6b800',
   },
   summaryCount: {
     color: '#e6b800',
     fontSize: 22,
     fontWeight: '700',
   },
+  summaryCountActive: {
+    color: '#ffffff',
+  },
   summaryLabel: {
     color: '#8090b0',
     fontSize: 11,
     marginTop: 2,
+  },
+  summaryLabelActive: {
+    color: '#e6b800',
   },
   totalText: {
     color: '#6b7fa0',
@@ -191,6 +279,31 @@ const styles = StyleSheet.create({
     color: '#4ade80',
     fontSize: 13,
     fontWeight: '600',
+  },
+  collapseHint: {
+    color: '#6b7fa0',
+    fontSize: 11,
+    textAlign: 'center',
+    marginBottom: 8,
+    fontStyle: 'italic',
+  },
+  settingRow: {
+    flexDirection: 'row',
+    backgroundColor: '#0f1628',
+    borderRadius: 6,
+    padding: 8,
+    gap: 8,
+  },
+  settingKey: {
+    color: '#8090b0',
+    fontSize: 11,
+    flex: 1,
+  },
+  settingValue: {
+    color: '#b7c1d6',
+    fontSize: 11,
+    flex: 1,
+    textAlign: 'right',
   },
   exportText: {
     color: '#b7c1d6',

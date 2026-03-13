@@ -14,41 +14,52 @@
 - **EAS builds from git** — uncommitted changes are NOT included. Always `git commit` before `eas build`.
 - **EAS free tier:** 1 build at a time. Can't cancel running builds.
 - **Firebase project:** Currently shares `wellbuilt-sync`. Needs its own project before Play Store.
+- **Firebase Android app:** `1:559487114498:android:148619dc95e45ad45bf61b` (com.afterswitch.app, added 3/13/2026)
 - **Website:** `C:\dev\afterswitch-site\` — static HTML, GitHub Pages
 
 ---
 
 ## Architecture
 
+### Cloud-First Storage (CURRENT — 3/13/2026)
+- **Google Sign-In on first launch** — uses `@react-native-google-signin/google-signin` native account picker → Firebase credential
+- **Scan auto-saves to cloud** — `saveProfileToCloud()` runs fire-and-forget after every scan
+- **Compare pulls from cloud** — `CloudProfileList` component fetches user's cloud profiles
+- **Restore pulls from cloud** — same `CloudProfileList` component
+- **Local save is just cache** — `saveProfileLocally()` still runs for offline access
+- **Export via share sheet** — for manual transfer (email, Drive, Bluetooth)
+- **Intent filter** — tapping JSON in any file manager imports to AfterSwitch
+
 ### App Structure
-- **App.tsx** — Root component. State management for profiles, tabs, scanning, import/export. Handles incoming JSON intents via Linking API.
-- **5 tabs:** Home, Scan, Compare, Restore, Cloud
+- **App.tsx** — Root component. Auth gate (SignInScreen if not signed in). State management for profiles, tabs, scanning. Handles incoming JSON intents via Linking API.
+- **4 tabs:** Home, Scan, Compare, Restore
 - **No navigation library** — simple `activeTab` state switches between screen components
 
 ### Screens
 | Screen | File | Purpose |
 |--------|------|---------|
-| Home | `src/screens/HomeScreen.tsx` | Scan button, device info, saved profiles list, export/cloud buttons |
-| Scan | `src/screens/ScanScreen.tsx` | Scan progress checklist, scan results summary, export button |
-| Compare | `src/screens/CompareScreen.tsx` | Side-by-side diff of two profiles (settings + apps) |
-| Restore | `src/screens/RestoreScreen.tsx` | Checklist restore UI: auto-restore, guided, missing apps. Permission checks. |
-| Cloud | `src/screens/CloudProfilesScreen.tsx` | Cloud profiles (Coming Soon placeholder) |
+| Sign In | `src/screens/SignInScreen.tsx` | Google Sign-In button, shown before app access |
+| Home | `src/screens/HomeScreen.tsx` | Scan button, device info, export, sign out |
+| Scan | `src/screens/ScanScreen.tsx` | Scan progress, results summary with tappable category badges, export |
+| Compare | `src/screens/CompareScreen.tsx` | Cloud profile picker → side-by-side diff |
+| Restore | `src/screens/RestoreScreen.tsx` | Cloud profile picker → checklist restore UI |
 
 ### Services
 | Service | File | Purpose |
 |---------|------|---------|
 | Profile Builder | `src/services/profileBuilder.ts` | Scans device settings via native module |
-| Profile IO | `src/services/profileIO.ts` | Save/load/export/import profiles. File picker. Intent handler. |
+| Profile IO | `src/services/profileIO.ts` | Save/load/export/import profiles locally. Intent handler. |
 | Profile Compare | `src/services/profileCompare.ts` | Diff engine for two profiles |
 | Settings Reader | `src/services/settingsReader.ts` | Native module bridge for reading/writing Android settings |
 | Cloud Profiles | `src/services/cloudProfiles.ts` | Firebase cloud storage for profiles |
-| Firebase | `src/services/firebase.ts` | Firebase init |
+| Firebase | `src/services/firebase.ts` | Firebase init + Google Sign-In + auth helpers |
 
 ### Components
 - `SectionCard.tsx` — Dark card wrapper with title/subtitle
 - `PrimaryButton.tsx` — Gold accent button
 - `TabButton.tsx` — Tab bar buttons
 - `InfoRow.tsx` — Label/value row
+- `CloudProfileList.tsx` — Shared cloud profile picker (used by Compare + Restore)
 
 ### Data
 - `src/data/settingsRegistry.ts` — Maps raw setting keys to human labels, groups, restore types, settings intents
@@ -56,51 +67,55 @@
 
 ---
 
-## Profile IO Architecture — CRITICAL
+## Auth — Google Sign-In
+
+### Setup Required (Firebase Console)
+1. Firebase Console → Authentication → Sign-in method → **Enable Google**
+2. Copy the **Web client ID** shown after enabling
+3. Paste in `src/services/firebase.ts` → `WEB_CLIENT_ID` constant
+4. Firebase Console → Project Settings → Android app (`com.afterswitch.app`) → **Add SHA-1 fingerprint**
+   - Run `eas credentials` → select preview → choose existing keystore → copy SHA-1
+5. Re-download `google-services.json` after adding SHA-1 (it updates the oauth_client array)
+
+### Flow
+1. App launches → `onAuthStateChanged` fires
+2. No user → `SignInScreen` shown
+3. User taps "Sign in with Google" → native Google Play Services account picker
+4. User picks their Google account (already on device) → `idToken` returned
+5. `GoogleAuthProvider.credential(idToken)` → `signInWithCredential(auth, credential)`
+6. Auth state changes → app renders normally
+
+---
+
+## Profile IO Architecture
 
 ### File Naming
 `AfterSwitch - {deviceName} - {Mon DD YYYY}.json`
-Example: `AfterSwitch - Galaxy S24 Ultra - Mar 12 2026.json`
+Example: `AfterSwitch - Galaxy S24 Ultra - Mar 13 2026.json`
 
-### Storage Location
-Profiles saved to app's document directory under `profiles/` subdirectory.
-Uses `expo-file-system/next` File/Directory/Paths API (SDK 54+).
+### Storage
+- **Primary:** Firestore `afterswitch_profiles/{uid}/profiles/{id}` (cloud)
+- **Cache:** App document directory `profiles/` subdirectory (local)
+- Uses `expo-file-system/next` File/Directory/Paths API (SDK 54+)
 
 ### Import/Save Pattern
-**EVERY import path saves a local copy.** This is the core UX principle:
-1. `saveProfileLocally(profile)` — writes to `profiles/` dir, returns file URI
-2. `listSavedProfiles()` — reads from same `profiles/` dir, returns sorted list
-3. `importProfileFromPicker()` — file picker → parse → `saveProfileLocally()` → profile shows in saved list
-4. `importProfileFromUri(uri)` — intent handler → `FileSystem.readAsStringAsync(uri)` for content:// URIs → parse → `saveProfileLocally()`
-5. `exportProfileJson(profile)` — `saveProfileLocally()` + share sheet
-
-Once imported, a profile is in the saved list forever. No more file picker needed.
+1. `saveProfileLocally(profile)` — writes to local `profiles/` dir
+2. `saveProfileToCloud(profile)` — writes to Firestore under user's UID
+3. `importProfileFromUri(uri)` — intent handler → parse → `saveProfileLocally()`
+4. `exportProfileJson(profile)` — `saveProfileLocally()` + share sheet
+5. `listCloudProfiles()` — fetches from Firestore, returns metadata
+6. `loadCloudProfile(id)` — fetches full profile from Firestore
 
 ### Intent Filter (Android)
 App registered as JSON file handler in `app.json` `intentFilters`. Tapping any JSON file in Google Drive, email, Downloads, file manager opens AfterSwitch and auto-imports.
 
-App.tsx handles intents via:
-- `Linking.getInitialURL()` — cold start (app opened by tapping file)
-- `Linking.addEventListener('url')` — warm start (file opened while app running)
-
 ---
 
-## INCOMPLETE / IN PROGRESS
-
-### Show saved file name in the app — DONE
-- `App.tsx` — `setSavedFileName()` called after scan, `savedFileName` passed to ScanScreen
-- `ScanScreen.tsx` — green "Saved as" box with file name displayed prominently after scan
-- `HomeScreen.tsx` — file name shown under each saved profile entry in the list
-- Footer status bar also shows `Saved: {fileName}`
-
-### Cloud Profiles
-- `CloudProfilesScreen.tsx` shows "Coming Soon"
-- Needs Google Sign-In + separate Firebase project
-- Cloud buttons (Save to Cloud, Load from Cloud) exist on HomeScreen
-
-### Separate Firebase Project
-- Currently shares `wellbuilt-sync` with WellBuilt apps
-- Needs its own Firebase project before Play Store submission
+## Scan Screen — Tappable Badges
+- After scan, summary badges (System, Secure, Global, Samsung, Apps, Defaults) are **tappable**
+- Tapping a badge expands a list of all settings/apps in that category
+- Gold border highlights the active badge
+- Tap again or "Tap to close" to collapse
 
 ---
 
@@ -119,6 +134,8 @@ App.tsx handles intents via:
 ---
 
 ## Git History (latest first)
+- `5aba6f8` — Wire up CloudProfilesScreen to list/load/delete cloud profiles
+- `ef07a7b` — Remove file picker, show saved file name, simplify IO
 - `cd73033` — Restore tab: show saved profiles + Browse Files when no comparison loaded
 - `1eb5071` — Register as JSON file handler — tap any JSON to import directly
 - `8c4af91` — Add app icon — logo in app.json, splash screen, and in-app header
@@ -133,18 +150,20 @@ App.tsx handles intents via:
 
 ---
 
-## Build Status
-- Latest finished build: `6d6f0fcc` (commit `1eb5071` — intent filter). APK available.
-- Build for `cd73033` (Restore tab) was kicked off but status unknown.
-- Uncommitted changes in `App.tsx` and `ScanScreen.tsx` need commit + build after file name display is finished.
+## UX Principles (from user feedback)
+1. **Cloud is THE storage.** Users sign in with Google, profiles live in the cloud. No file management.
+2. **SHOW THE FILE NAME.** After scan — user needs to know what happened.
+3. **One-tap access.** Compare and Restore show cloud profiles immediately. No extra steps.
+4. **Intent filter for imports.** Tap a JSON anywhere on the phone → AfterSwitch opens.
+5. **No file pickers.** Nobody knows how to browse a phone's file system.
 
 ---
 
-## UX Principles (from user feedback)
-1. **NEVER make the user dig through the Android file picker.** Show saved profiles in-app. Intent filter handles first import.
-2. **SHOW THE FILE NAME.** After scan, after export, in the saved profiles list — the user needs to know what the file is called and where it is.
-3. **Save locally on every import.** Once a profile enters the app from any source, it stays in the saved list.
-4. **Cloud buttons stay.** User explicitly said "we are gonna have save to cloud and load from cloud so why would you take to off." Don't remove them.
+## Separate Firebase Project (STILL NEEDED)
+- Currently shares `wellbuilt-sync` with WellBuilt apps
+- Android app added to wellbuilt-sync (3/13/2026): `com.afterswitch.app`
+- Needs its own Firebase project before Play Store submission
+- `google-services.json` will need to be regenerated for the new project
 
 ---
 
