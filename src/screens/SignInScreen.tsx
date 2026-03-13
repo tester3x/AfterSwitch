@@ -32,8 +32,10 @@ export function SignInScreen({ onSignedIn }: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.content}>
-        <Image source={require('../../assets/icon.png')} style={styles.logo} />
-        <Text style={styles.title}>After<Text style={styles.titleAccent}>Switch</Text></Text>
+        <View style={styles.titleRow}>
+          <Image source={require('../../assets/icon.png')} style={styles.logo} />
+          <Text style={styles.title}>After<Text style={styles.titleAccent}>Switch</Text></Text>
+        </View>
         <Text style={styles.subtitle}>
           Your phone settings, backed up and restorable.
         </Text>
@@ -81,17 +83,21 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 340,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
   logo: {
-    width: 80,
-    height: 80,
-    borderRadius: 16,
-    marginBottom: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    marginRight: 10,
   },
   title: {
     color: 'white',
     fontSize: 32,
     fontWeight: '700',
-    marginBottom: 6,
   },
   titleAccent: {
     color: '#e6b800',
