@@ -182,12 +182,8 @@ export function RestoreScreen({ comparison, currentProfile, onSelectCloudProfile
   // All restorable diffs (auto + unlocked secure)
   const allRestorableDiffs = [...autoDiffs, ...secureAutoDiffs];
 
-  // Failed auto-restore diffs (these should be offered as guided)
-  const failedAutoDiffs = autoDiffs.filter((d) => restoreStatuses[d.key] === 'failed');
-
   // Count stats — filter out already-restored items
   const successCount = Object.values(restoreStatuses).filter((s) => s === 'success').length;
-  const failedCount = Object.values(restoreStatuses).filter((s) => s === 'failed').length;
   const pendingRestorableCount = allRestorableDiffs.filter(
     (d) => checkedSettings[d.key] && restoreStatuses[d.key] !== 'success'
   ).length;
@@ -224,29 +220,27 @@ export function RestoreScreen({ comparison, currentProfile, onSelectCloudProfile
             {successCount} setting{successCount !== 1 ? 's' : ''} restored
           </Text>
         )}
-        {failedCount > 0 && (
-          <View style={styles.failedBox}>
-            <Text style={styles.failedBanner}>
-              {failedCount} failed — these need to be changed manually
-            </Text>
-            <Pressable
-              style={styles.failedWizardBtn}
-              onPress={() => setWizardActive(true)}
-            >
-              <Text style={styles.failedWizardBtnText}>
-                Walk me through them →
-              </Text>
-            </Pressable>
-          </View>
-        )}
         {pendingRestorableCount > 0 && (
           <PrimaryButton
             label={restoring ? 'Restoring...' : `Restore ${pendingRestorableCount} Checked Settings`}
             onPress={handleRestoreAll}
           />
         )}
-        {pendingRestorableCount === 0 && successCount > 0 && failedCount === 0 && (
+        {pendingRestorableCount === 0 && successCount > 0 && (
           <Text style={styles.allDoneBanner}>All checked settings restored!</Text>
+        )}
+        {remainingGuidedCount > 0 && (
+          <View style={styles.manualBox}>
+            <Text style={styles.manualText}>
+              {remainingGuidedCount} require{remainingGuidedCount === 1 ? 's' : ''} manual changes...
+            </Text>
+            <Pressable
+              style={styles.wizardBtn}
+              onPress={() => setWizardActive(true)}
+            >
+              <Text style={styles.wizardBtnText}>Run the wizard?</Text>
+            </Pressable>
+          </View>
         )}
       </SectionCard>
 
@@ -310,13 +304,10 @@ export function RestoreScreen({ comparison, currentProfile, onSelectCloudProfile
         <SectionCard title={`Guided Restore (${remainingGuidedCount})`}>
           {wizardActive ? (
             <GuidedWizard
-              diffs={[
-                ...failedAutoDiffs,
-                ...(hasSecureSettings
-                  ? guidedDiffs.filter((d) => d.category === 'defaults')
-                  : guidedDiffs
-                ).filter((d) => restoreStatuses[d.key] !== 'success'),
-              ]}
+              diffs={(hasSecureSettings
+                ? guidedDiffs.filter((d) => d.category === 'defaults')
+                : guidedDiffs
+              ).filter((d) => restoreStatuses[d.key] !== 'success')}
               isSamsung={isSamsung}
               onComplete={() => setWizardActive(false)}
               onSettingVerified={(key) => {
@@ -560,25 +551,24 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 8,
   },
-  failedBox: {
-    marginBottom: 8,
+  manualBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
+    flexWrap: 'wrap',
   },
-  failedBanner: {
-    color: '#f87171',
-    fontSize: 14,
-    fontWeight: '600',
+  manualText: {
+    color: '#8090b0',
+    fontSize: 13,
   },
-  failedWizardBtn: {
-    backgroundColor: '#1a2340',
-    paddingVertical: 8,
-    paddingHorizontal: 14,
+  wizardBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#e6b800',
-    alignSelf: 'flex-start',
   },
-  failedWizardBtnText: {
+  wizardBtnText: {
     color: '#e6b800',
     fontSize: 13,
     fontWeight: '600',
