@@ -11,7 +11,6 @@ type Props = {
   profile: DeviceProfile | null;
   lastScanTime: string | null;
   onScan: () => void;
-  onImport: () => void;
   onExport: () => void;
   onSaveToCloud: () => void;
   onLoadFromCloud: () => void;
@@ -24,7 +23,6 @@ export function HomeScreen({
   profile,
   lastScanTime,
   onScan,
-  onImport,
   onExport,
   onSaveToCloud,
   onLoadFromCloud,
@@ -124,6 +122,7 @@ export function HomeScreen({
                     {sp.manufacturer ? sp.manufacturer + ' · ' : ''}
                     {sp.settingsCount} settings · {sp.appsCount} apps
                   </Text>
+                  <Text style={styles.savedFileName}>{sp.fileName}</Text>
                   {sp.exportedAt ? (
                     <Text style={styles.savedDate}>
                       {new Date(sp.exportedAt).toLocaleDateString(undefined, {
@@ -142,17 +141,10 @@ export function HomeScreen({
           </View>
         )}
 
-        <View style={styles.buttonRow}>
-          <View style={styles.buttonCol}>
-            <PrimaryButton label="Load from Cloud" onPress={onLoadFromCloud} />
-          </View>
-          <View style={styles.buttonCol}>
-            <PrimaryButton label="Browse Files" onPress={onImport} />
-          </View>
-        </View>
+        <PrimaryButton label="Load from Cloud" onPress={onLoadFromCloud} />
         <Text style={styles.fileHint}>
-          Tip: You can also tap an AfterSwitch JSON file from Google Drive, email, or
-          your file manager — it will open directly in this app.
+          Tip: Tap an AfterSwitch JSON from Google Drive, email, or your file manager
+          — it imports automatically.
         </Text>
       </SectionCard>
     </>
@@ -249,6 +241,11 @@ const styles = StyleSheet.create({
   savedMeta: {
     color: '#8090b0',
     fontSize: 12,
+    marginTop: 2,
+  },
+  savedFileName: {
+    color: '#4a5a7a',
+    fontSize: 11,
     marginTop: 2,
   },
   savedDate: {

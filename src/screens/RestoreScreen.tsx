@@ -19,12 +19,11 @@ type Props = {
   comparison: ComparisonResult | null;
   savedProfiles: SavedProfileInfo[];
   onSelectSavedProfile: (info: SavedProfileInfo) => void;
-  onImport: () => void;
 };
 
 type RestoreStatus = 'pending' | 'restoring' | 'success' | 'failed';
 
-export function RestoreScreen({ comparison, savedProfiles, onSelectSavedProfile, onImport }: Props) {
+export function RestoreScreen({ comparison, savedProfiles, onSelectSavedProfile }: Props) {
   const [restoreStatuses, setRestoreStatuses] = useState<Record<string, RestoreStatus>>({});
   const [hasWriteSettings, setHasWriteSettings] = useState<boolean | null>(null);
   const [hasSecureSettings, setHasSecureSettings] = useState<boolean | null>(null);
@@ -166,12 +165,6 @@ export function RestoreScreen({ comparison, savedProfiles, onSelectSavedProfile,
           </SectionCard>
         )}
 
-        <SectionCard title="Other Options">
-          <PrimaryButton label="Browse Files" onPress={onImport} />
-          <Text style={styles.fileHint}>
-            Tip: Tap an AfterSwitch JSON from Google Drive, email, or Files — it opens here automatically.
-          </Text>
-        </SectionCard>
       </>
     );
   }
@@ -490,13 +483,6 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
     marginLeft: 8,
-  },
-  fileHint: {
-    color: '#4a5a7a',
-    fontSize: 11,
-    fontStyle: 'italic',
-    textAlign: 'center',
-    marginTop: 8,
   },
   progressText: {
     color: '#e6b800',

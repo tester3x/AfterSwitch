@@ -9,6 +9,7 @@ type Props = {
   profile: DeviceProfile | null;
   scanning: boolean;
   scanProgress: ScanProgress | null;
+  savedFileName: string | null;
   onExport: () => void;
 };
 
@@ -22,7 +23,7 @@ const SCAN_STEPS: Array<{ key: keyof ScanProgress; label: string }> = [
   { key: 'defaults', label: 'Default Apps' },
 ];
 
-export function ScanScreen({ profile, scanning, scanProgress, onExport }: Props) {
+export function ScanScreen({ profile, scanning, scanProgress, savedFileName, onExport }: Props) {
   if (scanning && scanProgress) {
     return (
       <SectionCard title="Scanning Device...">
@@ -79,6 +80,12 @@ export function ScanScreen({ profile, scanning, scanProgress, onExport }: Props)
         <Text style={styles.totalText}>
           {totalSettings} settings + {appCount} apps captured
         </Text>
+        {savedFileName && (
+          <View style={styles.savedFileBox}>
+            <Text style={styles.savedFileLabel}>Saved as</Text>
+            <Text style={styles.savedFileNameText}>{savedFileName}</Text>
+          </View>
+        )}
       </SectionCard>
 
       <SectionCard title="Device" subtitle={profile.device.nickname}>
@@ -164,6 +171,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
     marginTop: 8,
+  },
+  savedFileBox: {
+    backgroundColor: '#0f1628',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#4ade80',
+  },
+  savedFileLabel: {
+    color: '#6b7fa0',
+    fontSize: 11,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  savedFileNameText: {
+    color: '#4ade80',
+    fontSize: 13,
+    fontWeight: '600',
   },
   exportText: {
     color: '#b7c1d6',

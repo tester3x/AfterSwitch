@@ -10,7 +10,7 @@ import { CloudProfilesScreen } from './src/screens/CloudProfilesScreen';
 import type { AppTab, ComparisonResult, DeviceProfile, ScanProgress } from './src/types/profile';
 import { buildProfile } from './src/services/profileBuilder';
 import { compareProfiles } from './src/services/profileCompare';
-import { exportProfileJson, importProfileFromPicker, saveProfileLocally, importProfileFromUri, loadProfileFromPath, listSavedProfiles } from './src/services/profileIO';
+import { exportProfileJson, saveProfileLocally, importProfileFromUri, loadProfileFromPath, listSavedProfiles } from './src/services/profileIO';
 import type { SavedProfileInfo } from './src/services/profileIO';
 import { saveProfileToCloud } from './src/services/cloudProfiles';
 import { TabButton } from './src/components/TabButton';
@@ -27,6 +27,7 @@ export default function App() {
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [cloudSaving, setCloudSaving] = useState(false);
   const [savedProfiles, setSavedProfiles] = useState<SavedProfileInfo[]>([]);
+  const [savedFileName, setSavedFileName] = useState<string | null>(null);
 
   // Handle incoming JSON file (from intent — user tapped a JSON in another app)
   const handleIncomingFile = useCallback(async (url: string) => {
@@ -109,17 +110,12 @@ export default function App() {
       setCurrentProfile(profile);
       await AsyncStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(profile));
       // Auto-save to profiles directory
-      saveProfileLocally(profile);
+      const savedUri = saveProfileLocally(profile);
       refreshSavedProfiles();
 
-      const totalSettings =
-        Object.keys(profile.settings.system).length +
-        Object.keys(profile.settings.secure).length +
-        Object.keys(profile.settings.global).length +
-        Object.keys(profile.settings.samsung).length;
-      setStatusMessage(
-        `Scan complete: ${totalSettings} settings + ${profile.apps.installed.length} apps captured.`
-      );
+      const fileName = decodeURIComponent(savedUri.split('/').pop() || 'profile');
+      setSavedFileName(fileName);
+      setStatusMessage(`Saved: ${fileName}`);
     } catch (error) {
       setStatusMessage(`Scan failed: ${String(error)}`);
     } finally {
@@ -168,22 +164,6 @@ export default function App() {
     setActiveTab('compare');
   }, []);
 
-  const handleImport = useCallback(async () => {
-    try {
-      const imported = await importProfileFromPicker();
-      if (!imported) {
-        setStatusMessage('Import canceled.');
-        return;
-      }
-      setImportedProfile(imported);
-      await AsyncStorage.setItem(STORAGE_KEY_IMPORTED, JSON.stringify(imported));
-      refreshSavedProfiles();
-      setStatusMessage(`Imported profile from ${imported.device.nickname}.`);
-      setActiveTab('compare');
-    } catch (error) {
-      setStatusMessage(`Import failed: ${String(error)}`);
-    }
-  }, [refreshSavedProfiles]);
 
   const handleSelectSavedProfile = useCallback(async (info: SavedProfileInfo) => {
     try {
@@ -245,7 +225,6 @@ export default function App() {
               profile={currentProfile}
               lastScanTime={currentProfile?.exportedAt ?? null}
               onScan={handleScan}
-              onImport={handleImport}
               onExport={handleExport}
               onSaveToCloud={handleSaveToCloud}
               onLoadFromCloud={handleLoadFromCloud}
@@ -259,6 +238,7 @@ export default function App() {
               profile={currentProfile}
               scanning={scanning}
               scanProgress={scanProgress}
+              savedFileName={savedFileName}
               onExport={handleExport}
             />
           )}
@@ -267,7 +247,6 @@ export default function App() {
               currentProfile={currentProfile}
               importedProfile={importedProfile}
               comparison={comparison}
-              onImport={handleImport}
               savedProfiles={savedProfiles}
               onSelectSavedProfile={handleSelectSavedProfile}
             />
@@ -277,7 +256,6 @@ export default function App() {
               comparison={comparison}
               savedProfiles={savedProfiles}
               onSelectSavedProfile={handleSelectSavedProfile}
-              onImport={handleImport}
             />
           )}
           {activeTab === 'cloud' && (

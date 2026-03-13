@@ -5,7 +5,6 @@
  * Profiles saved to app documents under "profiles/" with readable names.
  */
 
-import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import { File, Directory, Paths } from 'expo-file-system/next';
 import * as Sharing from 'expo-sharing';
@@ -125,43 +124,6 @@ export function loadProfileFromPath(filePath: string): DeviceProfile {
   const content = file.text();
   const parsed = JSON.parse(content);
   return validateAndMigrate(parsed);
-}
-
-/**
- * Import a profile from the device file picker.
- * Also saves a copy to the profiles directory for future access.
- */
-export async function importProfileFromPicker(): Promise<DeviceProfile | null> {
-  const result = await DocumentPicker.getDocumentAsync({
-    type: 'application/json',
-    copyToCacheDirectory: true,
-    multiple: false,
-  });
-
-  if (result.canceled) return null;
-
-  const asset = result.assets[0];
-
-  if (asset.size && asset.size > 10 * 1024 * 1024) {
-    throw new Error('Profile file too large (max 10MB).');
-  }
-
-  const pickedFile = new File(asset.uri);
-  const content = pickedFile.text();
-
-  let parsed: any;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    throw new Error('Invalid JSON file. Please select an AfterSwitch profile.');
-  }
-
-  const profile = validateAndMigrate(parsed);
-
-  // Save a copy locally so it shows up in the saved profiles list
-  saveProfileLocally(profile);
-
-  return profile;
 }
 
 /**

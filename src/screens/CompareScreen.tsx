@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SectionCard } from '../components/SectionCard';
-import { PrimaryButton } from '../components/PrimaryButton';
 import { GROUP_LABELS } from '../data/settingsRegistry';
 import { groupDiffs } from '../services/profileCompare';
 import type { ComparisonResult, DeviceProfile, SettingDiff, AppDiff, SettingGroup } from '../types/profile';
@@ -11,12 +10,11 @@ type Props = {
   currentProfile: DeviceProfile | null;
   importedProfile: DeviceProfile | null;
   comparison: ComparisonResult | null;
-  onImport: () => void;
   savedProfiles: SavedProfileInfo[];
   onSelectSavedProfile: (info: SavedProfileInfo) => void;
 };
 
-export function CompareScreen({ currentProfile, importedProfile, comparison, onImport, savedProfiles, onSelectSavedProfile }: Props) {
+export function CompareScreen({ currentProfile, importedProfile, comparison, savedProfiles, onSelectSavedProfile }: Props) {
   if (!importedProfile || !comparison) {
     return (
       <>
@@ -59,9 +57,6 @@ export function CompareScreen({ currentProfile, importedProfile, comparison, onI
           </SectionCard>
         )}
 
-        <SectionCard title="Other Options">
-          <PrimaryButton label="Browse Files" onPress={onImport} />
-        </SectionCard>
       </>
     );
   }
