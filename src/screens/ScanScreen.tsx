@@ -86,8 +86,8 @@ export function ScanScreen({ profile, scanning, scanProgress, savedFileName, onE
 
     if (expandedCategory === 'defaults') {
       return Object.entries(profile.defaults).map(([key, val]) => ({
-        key,
-        value: val ? val.label || val.packageName : '(none)',
+        key: val ? val.label || val.packageName : '(none)',
+        value: key,
       }));
     }
 
