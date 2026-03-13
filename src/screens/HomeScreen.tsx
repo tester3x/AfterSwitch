@@ -150,6 +150,10 @@ export function HomeScreen({
             <PrimaryButton label="Browse Files" onPress={onImport} />
           </View>
         </View>
+        <Text style={styles.fileHint}>
+          Tip: You can also tap an AfterSwitch JSON file from Google Drive, email, or
+          your file manager — it will open directly in this app.
+        </Text>
       </SectionCard>
     </>
   );
@@ -264,5 +268,12 @@ const styles = StyleSheet.create({
   },
   buttonCol: {
     flex: 1,
+  },
+  fileHint: {
+    color: '#4a5a7a',
+    fontSize: 11,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: 8,
   },
 });

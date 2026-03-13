@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { ScanScreen } from './src/screens/ScanScreen';
@@ -10,7 +10,7 @@ import { CloudProfilesScreen } from './src/screens/CloudProfilesScreen';
 import type { AppTab, ComparisonResult, DeviceProfile, ScanProgress } from './src/types/profile';
 import { buildProfile } from './src/services/profileBuilder';
 import { compareProfiles } from './src/services/profileCompare';
-import { exportProfileJson, importProfileFromPicker, saveProfileLocally, loadProfileFromPath, listSavedProfiles } from './src/services/profileIO';
+import { exportProfileJson, importProfileFromPicker, saveProfileLocally, importProfileFromUri, loadProfileFromPath, listSavedProfiles } from './src/services/profileIO';
 import type { SavedProfileInfo } from './src/services/profileIO';
 import { saveProfileToCloud } from './src/services/cloudProfiles';
 import { TabButton } from './src/components/TabButton';
@@ -28,7 +28,25 @@ export default function App() {
   const [cloudSaving, setCloudSaving] = useState(false);
   const [savedProfiles, setSavedProfiles] = useState<SavedProfileInfo[]>([]);
 
-  // Load saved profiles on mount
+  // Handle incoming JSON file (from intent — user tapped a JSON in another app)
+  const handleIncomingFile = useCallback(async (url: string) => {
+    if (!url) return;
+    // Only handle content:// and file:// URIs (not afterswitch:// scheme links)
+    if (!url.startsWith('content://') && !url.startsWith('file://')) return;
+
+    try {
+      const profile = await importProfileFromUri(url);
+      setImportedProfile(profile);
+      await AsyncStorage.setItem(STORAGE_KEY_IMPORTED, JSON.stringify(profile));
+      refreshSavedProfiles();
+      setStatusMessage(`Imported profile from ${profile.device.nickname}.`);
+      setActiveTab('compare');
+    } catch (error) {
+      setStatusMessage(`Import failed: ${String(error)}`);
+    }
+  }, [refreshSavedProfiles]);
+
+  // Load saved profiles on mount + check for incoming file intent
   useEffect(() => {
     (async () => {
       try {
@@ -45,8 +63,21 @@ export default function App() {
       } catch (e) {
         console.log('Failed to load saved profiles:', e);
       }
+
+      // Check if app was opened by tapping a JSON file (cold start)
+      const initialUrl = await Linking.getInitialURL();
+      if (initialUrl) {
+        handleIncomingFile(initialUrl);
+      }
     })();
-  }, []);
+
+    // Listen for JSON files opened while app is already running (warm start)
+    const sub = Linking.addEventListener('url', ({ url }) => {
+      handleIncomingFile(url);
+    });
+
+    return () => sub.remove();
+  }, [handleIncomingFile]);
 
   const refreshSavedProfiles = useCallback(() => {
     setSavedProfiles(listSavedProfiles());
@@ -103,7 +134,8 @@ export default function App() {
     }
     try {
       const uri = await exportProfileJson(currentProfile);
-      setStatusMessage(`Exported: ${uri}`);
+      const fileName = uri.split('/').pop() || 'profile';
+      setStatusMessage(`Shared: ${decodeURIComponent(fileName)}`);
     } catch (error) {
       setStatusMessage(`Export failed: ${String(error)}`);
     }

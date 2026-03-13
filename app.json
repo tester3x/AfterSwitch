@@ -14,6 +14,7 @@
     "assetBundlePatterns": [
       "**/*"
     ],
+    "scheme": "afterswitch",
     "android": {
       "package": "com.afterswitch.app",
       "adaptiveIcon": {
@@ -23,6 +24,16 @@
       "permissions": [
         "android.permission.WRITE_SETTINGS",
         "android.permission.QUERY_ALL_PACKAGES"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": ["DEFAULT", "BROWSABLE"],
+          "data": [
+            { "scheme": "content", "mimeType": "application/json" },
+            { "scheme": "file", "mimeType": "application/json" }
+          ]
+        }
       ]
     },
     "plugins": [

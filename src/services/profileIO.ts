@@ -6,6 +6,7 @@
  */
 
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
 import { File, Directory, Paths } from 'expo-file-system/next';
 import * as Sharing from 'expo-sharing';
 import type { DeviceProfile } from '../types/profile';
@@ -147,6 +148,29 @@ export async function importProfileFromPicker(): Promise<DeviceProfile | null> {
 
   const pickedFile = new File(asset.uri);
   const content = pickedFile.text();
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error('Invalid JSON file. Please select an AfterSwitch profile.');
+  }
+
+  const profile = validateAndMigrate(parsed);
+
+  // Save a copy locally so it shows up in the saved profiles list
+  saveProfileLocally(profile);
+
+  return profile;
+}
+
+/**
+ * Import a profile from a content:// or file:// URI (from Android intent).
+ * Used when user taps a JSON file in another app and it opens in AfterSwitch.
+ */
+export async function importProfileFromUri(uri: string): Promise<DeviceProfile> {
+  // content:// URIs need the base FileSystem API, not the /next File class
+  const content = await FileSystem.readAsStringAsync(uri);
 
   let parsed: any;
   try {
