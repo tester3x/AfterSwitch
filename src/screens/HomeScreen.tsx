@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { SectionCard } from '../components/SectionCard';
 import { InfoRow } from '../components/InfoRow';
@@ -11,6 +11,7 @@ type Props = {
   lastScanTime: string | null;
   onScan: () => void;
   onExport: () => void;
+  onShare: () => void;
   cloudSaving: boolean;
   userName: string | null;
   onSignOut: () => void;
@@ -21,6 +22,7 @@ export function HomeScreen({
   lastScanTime,
   onScan,
   onExport,
+  onShare,
   cloudSaving,
   userName,
   onSignOut,
@@ -90,8 +92,13 @@ export function HomeScreen({
               label="Apps"
             />
           </View>
-          <View style={styles.exportRow}>
-            <PrimaryButton label="Share Profile" onPress={onExport} />
+          <View style={styles.buttonRow}>
+            <View style={styles.buttonHalf}>
+              <PrimaryButton label="Export JSON" onPress={onExport} />
+            </View>
+            <Pressable style={styles.communityBtn} onPress={onShare}>
+              <Text style={styles.communityBtnText}>Share to Community</Text>
+            </Pressable>
           </View>
         </SectionCard>
       )}
@@ -102,8 +109,8 @@ export function HomeScreen({
           your old phone. Your profiles are saved in the cloud automatically.
         </Text>
         <Text style={styles.hint}>
-          Tip: Tap an AfterSwitch JSON from Google Drive, email, or your file manager
-          — it imports automatically.
+          Tip: Use the Browse tab to find shared profiles from other users,
+          or enter a share code to load a friend's setup.
         </Text>
       </SectionCard>
     </>
@@ -173,8 +180,29 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 2,
   },
-  exportRow: {
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 8,
     marginTop: 10,
+  },
+  buttonHalf: {
+    flex: 1,
+  },
+  communityBtn: {
+    flex: 1,
+    backgroundColor: '#1a2340',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#60a5fa',
+    justifyContent: 'center',
+  },
+  communityBtnText: {
+    color: '#60a5fa',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   accountRow: {
     flexDirection: 'row',

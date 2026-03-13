@@ -7,11 +7,14 @@ import { HomeScreen } from './src/screens/HomeScreen';
 import { ScanScreen } from './src/screens/ScanScreen';
 import { CompareScreen } from './src/screens/CompareScreen';
 import { RestoreScreen } from './src/screens/RestoreScreen';
+import { BrowseScreen } from './src/screens/BrowseScreen';
+import { ShareProfileModal } from './src/components/ShareProfileModal';
 import type { AppTab, ComparisonResult, DeviceProfile, ScanProgress } from './src/types/profile';
 import { buildProfile } from './src/services/profileBuilder';
 import { compareProfiles } from './src/services/profileCompare';
 import { exportProfileJson, saveProfileLocally, importProfileFromUri } from './src/services/profileIO';
 import { saveProfileToCloud } from './src/services/cloudProfiles';
+import { getProfileByShareCode } from './src/services/sharedProfiles';
 import { onAuthChanged, signOutUser, type User } from './src/services/firebase';
 import { TabButton } from './src/components/TabButton';
 
@@ -29,6 +32,7 @@ export default function App() {
   const [cloudSaving, setCloudSaving] = useState(false);
   const [cloudSaved, setCloudSaved] = useState(false);
   const [savedFileName, setSavedFileName] = useState<string | null>(null);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
 
   // Listen for Firebase auth state
   useEffect(() => {
@@ -38,9 +42,33 @@ export default function App() {
     return unsub;
   }, []);
 
-  // Handle incoming JSON file (from intent — user tapped a JSON in another app)
-  const handleIncomingFile = useCallback(async (url: string) => {
+  // Handle deep links — share codes (afterswitch://profile/{code}) + JSON imports
+  const handleDeepLink = useCallback(async (url: string) => {
     if (!url) return;
+
+    // Handle share code deep links: afterswitch://profile/{code}
+    const shareMatch = url.match(/afterswitch:\/\/profile\/([A-Za-z0-9]+)/);
+    if (shareMatch) {
+      const code = shareMatch[1].toUpperCase();
+      setStatusMessage(`Looking up share code ${code}...`);
+      try {
+        const profile = await getProfileByShareCode(code);
+        if (!profile) {
+          setStatusMessage(`No profile found for code ${code}.`);
+          return;
+        }
+        setImportedProfile(profile);
+        await AsyncStorage.setItem(STORAGE_KEY_IMPORTED, JSON.stringify(profile));
+        setStatusMessage(`Loaded shared profile from ${profile.device.nickname}.`);
+        saveProfileLocally(profile);
+        setActiveTab('compare');
+      } catch (e) {
+        setStatusMessage(`Share code lookup failed: ${String(e)}`);
+      }
+      return;
+    }
+
+    // Handle JSON file imports (content:// or file://)
     if (!url.startsWith('content://') && !url.startsWith('file://')) return;
 
     try {
@@ -54,7 +82,7 @@ export default function App() {
     }
   }, []);
 
-  // Load saved profiles on mount + check for incoming file intent
+  // Load saved profiles on mount + check for incoming deep link
   useEffect(() => {
     (async () => {
       try {
@@ -72,16 +100,16 @@ export default function App() {
 
       const initialUrl = await Linking.getInitialURL();
       if (initialUrl) {
-        handleIncomingFile(initialUrl);
+        handleDeepLink(initialUrl);
       }
     })();
 
     const sub = Linking.addEventListener('url', ({ url }) => {
-      handleIncomingFile(url);
+      handleDeepLink(url);
     });
 
     return () => sub.remove();
-  }, [handleIncomingFile]);
+  }, [handleDeepLink]);
 
   // Compare profiles whenever either changes
   const comparison: ComparisonResult | null = useMemo(() => {
@@ -159,6 +187,14 @@ export default function App() {
     setActiveTab('compare');
   }, []);
 
+  const handleSelectSharedProfile = useCallback(async (profile: DeviceProfile) => {
+    setImportedProfile(profile);
+    await AsyncStorage.setItem(STORAGE_KEY_IMPORTED, JSON.stringify(profile));
+    setStatusMessage(`Loaded shared profile from ${profile.device.nickname}.`);
+    saveProfileLocally(profile);
+    setActiveTab('compare');
+  }, []);
+
   const handleSignOut = useCallback(async () => {
     try {
       await signOutUser();
@@ -225,6 +261,11 @@ export default function App() {
             active={activeTab === 'restore'}
             onPress={() => setActiveTab('restore')}
           />
+          <TabButton
+            label="Browse"
+            active={activeTab === 'browse'}
+            onPress={() => setActiveTab('browse')}
+          />
         </View>
 
         <ScrollView contentContainerStyle={styles.content}>
@@ -234,6 +275,7 @@ export default function App() {
               lastScanTime={currentProfile?.exportedAt ?? null}
               onScan={handleScan}
               onExport={handleExport}
+              onShare={() => setShareModalVisible(true)}
               cloudSaving={cloudSaving}
               userName={user.displayName || user.email || 'Signed in'}
               onSignOut={handleSignOut}
@@ -265,11 +307,22 @@ export default function App() {
               onSelectCloudProfile={handleSelectCloudProfile}
             />
           )}
+          {activeTab === 'browse' && (
+            <BrowseScreen onSelectProfile={handleSelectSharedProfile} />
+          )}
         </ScrollView>
 
         <View style={styles.footer}>
           <Text style={styles.footerText}>{statusMessage}</Text>
         </View>
+
+        {/* Share Profile Modal */}
+        <ShareProfileModal
+          visible={shareModalVisible}
+          profile={currentProfile}
+          ownerName={user.displayName || user.email || 'Anonymous'}
+          onClose={() => setShareModalVisible(false)}
+        />
       </SafeAreaView>
     </SafeAreaProvider>
   );

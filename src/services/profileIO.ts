@@ -131,8 +131,19 @@ export function loadProfileFromPath(filePath: string): DeviceProfile {
  * Used when user taps a JSON file in another app and it opens in AfterSwitch.
  */
 export async function importProfileFromUri(uri: string): Promise<DeviceProfile> {
-  // content:// URIs need the legacy FileSystem API, not the /next File class
-  const content = await LegacyFileSystem.readAsStringAsync(uri);
+  let content: string;
+
+  if (uri.startsWith('content://')) {
+    // content:// URIs (Quick Share, media store) can't be read directly.
+    // Copy to a temp file first, then read the temp file.
+    const tempPath = LegacyFileSystem.cacheDirectory + 'import_temp.json';
+    await LegacyFileSystem.copyAsync({ from: uri, to: tempPath });
+    content = await LegacyFileSystem.readAsStringAsync(tempPath);
+    // Clean up temp file (fire-and-forget)
+    LegacyFileSystem.deleteAsync(tempPath, { idempotent: true }).catch(() => {});
+  } else {
+    content = await LegacyFileSystem.readAsStringAsync(uri);
+  }
 
   let parsed: any;
   try {

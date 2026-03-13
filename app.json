@@ -23,7 +23,8 @@
       },
       "permissions": [
         "android.permission.WRITE_SETTINGS",
-        "android.permission.QUERY_ALL_PACKAGES"
+        "android.permission.QUERY_ALL_PACKAGES",
+        "android.permission.CAMERA"
       ],
       "googleServicesFile": "./google-services.json",
       "intentFilters": [
@@ -34,12 +35,25 @@
             { "scheme": "content", "mimeType": "application/json" },
             { "scheme": "file", "mimeType": "application/json" }
           ]
+        },
+        {
+          "action": "VIEW",
+          "category": ["DEFAULT", "BROWSABLE"],
+          "data": [
+            { "scheme": "afterswitch", "host": "profile" }
+          ]
         }
       ]
     },
     "plugins": [
       "./plugins/withDeviceSettings",
-      "@react-native-google-signin/google-signin"
+      "@react-native-google-signin/google-signin",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "AfterSwitch needs camera access to scan QR codes for shared profiles."
+        }
+      ]
     ],
     "extra": {
       "eas": {
