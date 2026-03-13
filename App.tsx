@@ -41,15 +41,15 @@ export default function App() {
           setImportedProfile(JSON.parse(savedImported));
         }
         // Load saved profile files list
-        setSavedProfiles(await listSavedProfiles());
+        setSavedProfiles(listSavedProfiles());
       } catch (e) {
         console.log('Failed to load saved profiles:', e);
       }
     })();
   }, []);
 
-  const refreshSavedProfiles = useCallback(async () => {
-    setSavedProfiles(await listSavedProfiles());
+  const refreshSavedProfiles = useCallback(() => {
+    setSavedProfiles(listSavedProfiles());
   }, []);
 
   // Compare profiles whenever either changes
@@ -78,8 +78,8 @@ export default function App() {
       setCurrentProfile(profile);
       await AsyncStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(profile));
       // Auto-save to profiles directory
-      await saveProfileLocally(profile);
-      await refreshSavedProfiles();
+      saveProfileLocally(profile);
+      refreshSavedProfiles();
 
       const totalSettings =
         Object.keys(profile.settings.system).length +
@@ -145,7 +145,7 @@ export default function App() {
       }
       setImportedProfile(imported);
       await AsyncStorage.setItem(STORAGE_KEY_IMPORTED, JSON.stringify(imported));
-      await refreshSavedProfiles();
+      refreshSavedProfiles();
       setStatusMessage(`Imported profile from ${imported.device.nickname}.`);
       setActiveTab('compare');
     } catch (error) {
