@@ -866,6 +866,63 @@ export const GROUP_ORDER: Record<SettingGroup, number> = {
   other: 11,
 };
 
+// ==================== JUNK FILTER ====================
+
+/**
+ * Setting key patterns that are internal/system-level and NOT accessible
+ * to users through any Settings UI. These should be filtered from the
+ * Guided Restore wizard so users aren't told to find unfindable settings.
+ */
+const JUNK_KEY_PATTERNS: string[] = [
+  'a2dp_uhqa',          // Samsung internal Bluetooth codec quality
+  'a2dp_offload',       // Bluetooth hardware offload (internal)
+  'bluetooth_addr',     // Bluetooth MAC address (read-only)
+  'bluetooth_name',     // Resolves automatically from device name
+  'bluetooth_class',    // Bluetooth device class (internal)
+  'ble_scan_',          // BLE scanning params (internal)
+  'wifi_watchdog',      // Wi-Fi watchdog (internal)
+  'wifi_max_dhcp',      // DHCP retry (internal)
+  'wifi_sleep_policy',  // Wi-Fi sleep behavior (deprecated on modern Android)
+  'wifi_scan_',         // Wi-Fi scan intervals (internal)
+  'netstats_',          // Network statistics (internal)
+  'zen_mode',           // Do Not Disturb internal state
+  'zen_duration',       // DND duration internals
+  'sync_parent_sounds', // Samsung Knox internal
+  'device_provisioned', // First-boot flag (read-only)
+  'user_setup_complete', // Setup wizard flag (read-only)
+  'install_non_market_apps', // Deprecated since Android 8
+  'package_verifier',   // Play Protect internals
+  'mount_play_not_snd', // Mount notification sound (buried)
+  'lock_screen_custom', // Lock screen internal state
+  'lock_to_app_enabled', // Screen pinning internal
+  'multi_press_timeout', // Internal accessibility timing
+  'pointer_speed',      // Mouse pointer (rarely relevant)
+  'backup_',            // Backup service internals
+  'bugreport_in_power', // Bug report toggle (dev)
+  'data_roaming',       // Carrier setting (risky to auto-change)
+  'mobile_data',        // Carrier setting (risky)
+  'cdma_',              // CDMA radio settings
+  'preferred_network',  // Network mode (carrier)
+  'captive_portal',     // Captive portal detection (internal)
+  'private_dns',        // DNS settings (technical)
+  'connectivity_change', // Network change internals
+  'sem_enhanced_cpu',   // Samsung Enterprise Management
+  'knox_',              // Samsung Knox (enterprise)
+  'ssrm_',              // Samsung SSRM (internal)
+  'surface_composition', // Display compositor (internal)
+  'peak_refresh_rate',  // Handled by display settings (auto-managed)
+  'min_refresh_rate',   // Handled by display settings (auto-managed)
+];
+
+/**
+ * Returns true if a setting key is "junk" — internal/system-level and
+ * not accessible to users through any Settings UI.
+ */
+export function isJunkSetting(fullKey: string): boolean {
+  const keyLower = fullKey.toLowerCase();
+  return JUNK_KEY_PATTERNS.some(pattern => keyLower.includes(pattern));
+}
+
 // ==================== WIZARD HELPERS ====================
 
 import type { SettingDiff } from '../types/profile';

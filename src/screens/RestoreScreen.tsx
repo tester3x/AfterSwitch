@@ -4,7 +4,7 @@ import { SectionCard } from '../components/SectionCard';
 import { CloudProfileList } from '../components/CloudProfileList';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { GuidedWizard } from '../components/GuidedWizard';
-import { GROUP_LABELS, GROUP_ORDER } from '../data/settingsRegistry';
+import { GROUP_LABELS, GROUP_ORDER, isJunkSetting } from '../data/settingsRegistry';
 import type { AppDiff, ComparisonResult, SettingDiff, SettingGroup } from '../types/profile';
 import type { DeviceProfile } from '../types/profile';
 import {
@@ -172,9 +172,9 @@ export function RestoreScreen({ comparison, currentProfile, onSelectCloudProfile
     );
   }
 
-  // Split diffs by restore capability
-  const autoDiffs = comparison.settings.filter((d) => d.restoreType === 'auto');
-  const guidedDiffs = comparison.settings.filter((d) => d.restoreType === 'guided');
+  // Split diffs by restore capability — filter junk settings that users can't find
+  const autoDiffs = comparison.settings.filter((d) => d.restoreType === 'auto' && !isJunkSetting(d.key));
+  const guidedDiffs = comparison.settings.filter((d) => d.restoreType === 'guided' && !isJunkSetting(d.key));
   const secureAutoDiffs = hasSecureSettings
     ? guidedDiffs.filter((d) => d.category !== 'defaults')
     : [];

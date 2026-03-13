@@ -16,6 +16,8 @@ type Props = {
   userName: string | null;
   onSignOut: () => void;
   profileSource: 'local' | 'cloud' | null;
+  cloudHasProfile: boolean;
+  onSaveToCloud: () => void;
   settingsMatch: boolean;
   quickChecking: boolean;
   diffCount: number;
@@ -31,6 +33,8 @@ export function HomeScreen({
   userName,
   onSignOut,
   profileSource,
+  cloudHasProfile,
+  onSaveToCloud,
   settingsMatch,
   quickChecking,
   diffCount,
@@ -52,18 +56,28 @@ export function HomeScreen({
       {/* Show saved profile immediately with source badge */}
       {profile && (
         <SectionCard title="Device Info">
-          {profileSource === 'cloud' && (
-            <View style={styles.cloudBadge}>
-              <Text style={styles.cloudBadgeIcon}>&#9729;</Text>
-              <Text style={styles.cloudBadgeText}>Loaded from Cloud</Text>
-            </View>
-          )}
-          {profileSource === 'local' && (
+          <View style={styles.badgeRow}>
+            {/* Device badge — always show when profile exists */}
             <View style={styles.localBadge}>
               <Text style={styles.localBadgeIcon}>&#10003;</Text>
               <Text style={styles.localBadgeText}>Saved on Device</Text>
             </View>
-          )}
+            {/* Cloud badge — show status */}
+            {cloudSaving ? (
+              <View style={styles.cloudSavingBadge}>
+                <Text style={styles.cloudSavingText}>Saving to Cloud...</Text>
+              </View>
+            ) : cloudHasProfile ? (
+              <View style={styles.cloudBadge}>
+                <Text style={styles.cloudBadgeIcon}>&#9729;</Text>
+                <Text style={styles.cloudBadgeText}>Saved to Cloud</Text>
+              </View>
+            ) : (
+              <Pressable style={styles.cloudPromptBadge} onPress={onSaveToCloud}>
+                <Text style={styles.cloudPromptText}>Save to Cloud?</Text>
+              </Pressable>
+            )}
+          </View>
           <InfoRow label="Name" value={profile.device.nickname} />
           <InfoRow
             label="Device"
@@ -129,9 +143,6 @@ export function HomeScreen({
           />
         )}
 
-        {cloudSaving && (
-          <Text style={styles.cloudStatus}>Saving to cloud...</Text>
-        )}
         {lastScanTime && (
           <Text style={styles.lastScan}>
             Last scan: {new Date(lastScanTime).toLocaleString()}
@@ -181,12 +192,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
   },
-  cloudStatus: {
-    color: '#60a5fa',
-    fontSize: 12,
-    marginTop: 4,
-    fontStyle: 'italic',
-  },
   // Source badges (Device Info card)
   cloudBadge: {
     flexDirection: 'row',
@@ -196,10 +201,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    marginBottom: 8,
     borderWidth: 1,
     borderColor: '#4ade80',
-    alignSelf: 'flex-start',
   },
   cloudBadgeIcon: {
     color: '#4ade80',
@@ -218,10 +221,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    marginBottom: 8,
     borderWidth: 1,
     borderColor: '#4ade80',
-    alignSelf: 'flex-start',
   },
   localBadgeIcon: {
     color: '#4ade80',
@@ -229,6 +230,43 @@ const styles = StyleSheet.create({
   },
   localBadgeText: {
     color: '#4ade80',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+    marginBottom: 8,
+  },
+  cloudSavingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1a2340',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#e6b800',
+  },
+  cloudSavingText: {
+    color: '#e6b800',
+    fontSize: 12,
+    fontWeight: '600',
+    fontStyle: 'italic',
+  },
+  cloudPromptBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1a1400',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#f59e0b',
+  },
+  cloudPromptText: {
+    color: '#f59e0b',
     fontSize: 12,
     fontWeight: '700',
   },

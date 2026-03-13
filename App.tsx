@@ -35,6 +35,7 @@ export default function App() {
   const [savedFileName, setSavedFileName] = useState<string | null>(null);
   const [shareModalVisible, setShareModalVisible] = useState(false);
   const [profileSource, setProfileSource] = useState<'local' | 'cloud' | null>(null);
+  const [cloudHasProfile, setCloudHasProfile] = useState(false);
   const [quickCheck, setQuickCheck] = useState<QuickCheckResult | null>(null);
   const [quickChecking, setQuickChecking] = useState(false);
 
@@ -115,11 +116,20 @@ export default function App() {
             loadedProfile = cloudProfile;
             setCurrentProfile(cloudProfile);
             setProfileSource('cloud');
+            setCloudHasProfile(true);
             await AsyncStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(cloudProfile));
             setStatusMessage('Loaded your profile from the cloud.');
           }
         } catch (e) {
           console.log('Cloud profile load failed:', e);
+        }
+      } else {
+        // We loaded from local — check if cloud also has a profile
+        try {
+          const cloudProfile = await loadLatestCloudProfile();
+          setCloudHasProfile(!!cloudProfile);
+        } catch (e) {
+          console.log('Cloud check failed:', e);
         }
       }
 
@@ -194,6 +204,7 @@ export default function App() {
         .then((id) => {
           setStatusMessage(`Saved locally + cloud (${id})`);
           setCloudSaved(true);
+          setCloudHasProfile(true);
         })
         .catch((e) => {
           console.log('Cloud save failed:', e);
@@ -239,6 +250,20 @@ export default function App() {
     saveProfileLocally(profile);
     setActiveTab('compare');
   }, []);
+
+  const handleSaveToCloud = useCallback(async () => {
+    if (!currentProfile) return;
+    setCloudSaving(true);
+    try {
+      const id = await saveProfileToCloud(currentProfile);
+      setCloudHasProfile(true);
+      setStatusMessage(`Saved to cloud (${id})`);
+    } catch (e) {
+      setStatusMessage(`Cloud save failed: ${String(e)}`);
+    } finally {
+      setCloudSaving(false);
+    }
+  }, [currentProfile]);
 
   const handleSignOut = useCallback(async () => {
     try {
@@ -325,6 +350,8 @@ export default function App() {
               userName={user.displayName || user.email || 'Signed in'}
               onSignOut={handleSignOut}
               profileSource={profileSource}
+              cloudHasProfile={cloudHasProfile}
+              onSaveToCloud={handleSaveToCloud}
               settingsMatch={quickCheck?.settingsMatch ?? false}
               quickChecking={quickChecking}
               diffCount={quickCheck?.diffCount ?? 0}

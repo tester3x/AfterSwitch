@@ -8,6 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { PrimaryButton } from './PrimaryButton';
 import { getStepsForDiff, getIntentForDiff } from '../data/settingsRegistry';
 import {
@@ -33,8 +34,15 @@ export function GuidedWizard({ diffs, isSamsung, onComplete, onSettingVerified }
   const [currentIndex, setCurrentIndex] = useState(0);
   const [verifyState, setVerifyState] = useState<VerifyState>('idle');
   const [waitingForReturn, setWaitingForReturn] = useState(false);
+  const [copied, setCopied] = useState(false);
   const appStateRef = useRef(AppState.currentState);
   const progressAnim = useRef(new Animated.Value(0)).current;
+
+  const handleCopyLabel = useCallback(async (label: string) => {
+    await Clipboard.setStringAsync(label);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }, []);
 
   // Animate progress bar
   useEffect(() => {
@@ -117,6 +125,7 @@ export function GuidedWizard({ diffs, isSamsung, onComplete, onSettingVerified }
     } else {
       setCurrentIndex(nextIndex);
       setVerifyState('idle');
+      setCopied(false);
     }
   }, [currentIndex, diffs.length]);
 
@@ -175,8 +184,13 @@ export function GuidedWizard({ diffs, isSamsung, onComplete, onSettingVerified }
         />
       </View>
 
-      {/* Setting info */}
-      <Text style={styles.settingLabel}>{diff.label}</Text>
+      {/* Setting info — tap label to copy for Settings search */}
+      <Pressable onPress={() => handleCopyLabel(diff.label)}>
+        <Text style={styles.settingLabel}>
+          {diff.label}
+          <Text style={styles.copyHint}>{copied ? '  Copied!' : '  (tap to copy)'}</Text>
+        </Text>
+      </Pressable>
       {diff.description && (
         <Text style={styles.settingDescription}>{diff.description}</Text>
       )}
@@ -307,6 +321,11 @@ const styles = StyleSheet.create({
   settingDescription: {
     color: '#8090b0',
     fontSize: 13,
+  },
+  copyHint: {
+    color: '#4ade80',
+    fontSize: 12,
+    fontWeight: '400',
   },
   // Values
   valuesBox: {
