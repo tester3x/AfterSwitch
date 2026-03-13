@@ -272,7 +272,14 @@ export default function App() {
               onSelectSavedProfile={handleSelectSavedProfile}
             />
           )}
-          {activeTab === 'restore' && <RestoreScreen comparison={comparison} />}
+          {activeTab === 'restore' && (
+            <RestoreScreen
+              comparison={comparison}
+              savedProfiles={savedProfiles}
+              onSelectSavedProfile={handleSelectSavedProfile}
+              onImport={handleImport}
+            />
+          )}
           {activeTab === 'cloud' && (
             <CloudProfilesScreen
               onSelect={handleCloudSelect}

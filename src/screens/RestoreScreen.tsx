@@ -1,9 +1,10 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SectionCard } from '../components/SectionCard';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { GROUP_LABELS } from '../data/settingsRegistry';
 import type { AppDiff, ComparisonResult, SettingDiff } from '../types/profile';
+import type { SavedProfileInfo } from '../services/profileIO';
 import {
   canWriteSettings,
   canWriteSecureSettings,
@@ -16,11 +17,14 @@ import {
 
 type Props = {
   comparison: ComparisonResult | null;
+  savedProfiles: SavedProfileInfo[];
+  onSelectSavedProfile: (info: SavedProfileInfo) => void;
+  onImport: () => void;
 };
 
 type RestoreStatus = 'pending' | 'restoring' | 'success' | 'failed';
 
-export function RestoreScreen({ comparison }: Props) {
+export function RestoreScreen({ comparison, savedProfiles, onSelectSavedProfile, onImport }: Props) {
   const [restoreStatuses, setRestoreStatuses] = useState<Record<string, RestoreStatus>>({});
   const [hasWriteSettings, setHasWriteSettings] = useState<boolean | null>(null);
   const [hasSecureSettings, setHasSecureSettings] = useState<boolean | null>(null);
@@ -131,13 +135,52 @@ export function RestoreScreen({ comparison }: Props) {
     });
   }, []);
 
-  if (!comparison || comparison.summary.totalDiffs === 0) {
+  if (!comparison) {
     return (
-      <SectionCard title="Restore">
+      <>
+        <SectionCard title="Load a Profile to Restore">
+          <Text style={styles.emptyText}>
+            Import your old phone's profile to see what's different and restore settings.
+          </Text>
+        </SectionCard>
+
+        {savedProfiles.length > 0 && (
+          <SectionCard title="Saved Profiles">
+            {savedProfiles.map((sp) => (
+              <TouchableOpacity
+                key={sp.filePath}
+                style={styles.savedRow}
+                onPress={() => onSelectSavedProfile(sp)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.savedInfo}>
+                  <Text style={styles.savedName}>{sp.deviceName}</Text>
+                  <Text style={styles.savedMeta}>
+                    {sp.manufacturer ? sp.manufacturer + ' · ' : ''}
+                    {sp.settingsCount} settings · {sp.appsCount} apps
+                  </Text>
+                </View>
+                <Text style={styles.savedArrow}>›</Text>
+              </TouchableOpacity>
+            ))}
+          </SectionCard>
+        )}
+
+        <SectionCard title="Other Options">
+          <PrimaryButton label="Browse Files" onPress={onImport} />
+          <Text style={styles.fileHint}>
+            Tip: Tap an AfterSwitch JSON from Google Drive, email, or Files — it opens here automatically.
+          </Text>
+        </SectionCard>
+      </>
+    );
+  }
+
+  if (comparison.summary.totalDiffs === 0) {
+    return (
+      <SectionCard title="All Good!">
         <Text style={styles.emptyText}>
-          {!comparison
-            ? 'Import a profile and compare settings first.'
-            : 'No differences to restore. Your phones match!'}
+          No differences to restore. Your phones match!
         </Text>
       </SectionCard>
     );
@@ -420,6 +463,40 @@ const styles = StyleSheet.create({
     color: '#8090b0',
     fontSize: 14,
     lineHeight: 20,
+  },
+  savedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1a2340',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 6,
+  },
+  savedInfo: {
+    flex: 1,
+  },
+  savedName: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  savedMeta: {
+    color: '#8090b0',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  savedArrow: {
+    color: '#e6b800',
+    fontSize: 24,
+    fontWeight: '700',
+    marginLeft: 8,
+  },
+  fileHint: {
+    color: '#4a5a7a',
+    fontSize: 11,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: 8,
   },
   progressText: {
     color: '#e6b800',
