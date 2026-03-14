@@ -37,6 +37,7 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
   const [sectionCollapsed, setSectionCollapsed] = useState<Record<string, boolean>>({});
   const [restoring, setRestoring] = useState(false);
   const [wizardActive, setWizardActive] = useState(false);
+  const [appsShown, setAppsShown] = useState(20);
 
   const isSamsung = useMemo(() => {
     return currentProfile?.device.manufacturer?.toLowerCase().includes('samsung') ?? false;
@@ -409,7 +410,7 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
           <Text style={styles.sectionDescription}>
             Tap an app to open it in the Play Store.
           </Text>
-          {visibleApps.map((app) => (
+          {visibleApps.slice(0, appsShown).map((app) => (
             <AppRestoreRow
               key={app.packageName}
               app={app}
@@ -418,6 +419,16 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
               onInstall={() => handleInstallApp(app.packageName)}
             />
           ))}
+          {appsShown < visibleApps.length && (
+            <Pressable
+              style={styles.showMoreBtn}
+              onPress={() => setAppsShown((prev) => prev + 20)}
+            >
+              <Text style={styles.showMoreText}>
+                Show More ({visibleApps.length - appsShown} remaining)
+              </Text>
+            </Pressable>
+          )}
         </CollapsibleSectionCard>
       )}
     </>
@@ -883,6 +894,18 @@ const styles = StyleSheet.create({
   installBtnText: {
     color: '#4ade80',
     fontSize: 12,
+    fontWeight: '600',
+  },
+  showMoreBtn: {
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#25304c',
+  },
+  showMoreText: {
+    color: '#60a5fa',
+    fontSize: 13,
     fontWeight: '600',
   },
 });

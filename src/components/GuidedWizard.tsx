@@ -38,10 +38,19 @@ export function GuidedWizard({ diffs, isSamsung, onComplete, onSettingVerified }
   const appStateRef = useRef(AppState.currentState);
   const progressAnim = useRef(new Animated.Value(0)).current;
 
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const handleCopyLabel = useCallback(async (label: string) => {
     await Clipboard.setStringAsync(label);
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = setTimeout(() => setCopied(false), 1500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    };
   }, []);
 
   // Animate progress bar
