@@ -1,6 +1,7 @@
 package com.afterswitch.app
 
 import android.content.ContentResolver
+import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
@@ -320,6 +321,8 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
     /**
      * Write a single Settings.System value.
      * Requires WRITE_SETTINGS permission.
+     * Falls back to direct ContentResolver write for Samsung custom settings
+     * that aren't in Android's SETTINGS_TO_BACKUP whitelist (throws IllegalArgumentException).
      */
     @ReactMethod
     fun writeSystemSetting(key: String, value: String, promise: Promise) {
@@ -331,6 +334,17 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
             Settings.System.putString(reactContext.contentResolver, key, value)
             Log.d(TAG, "Wrote system setting: $key = $value")
             promise.resolve(true)
+        } catch (e: IllegalArgumentException) {
+            // Samsung custom setting not in Android whitelist — try direct ContentResolver
+            Log.w(TAG, "putString blocked for $key, trying direct ContentResolver")
+            try {
+                writeSettingDirect(Settings.System.CONTENT_URI, key, value)
+                Log.d(TAG, "Wrote system setting via ContentResolver: $key = $value")
+                promise.resolve(true)
+            } catch (e2: Exception) {
+                Log.e(TAG, "Direct write also failed for $key: ${e2.message}")
+                promise.reject("WRITE_ERROR", "Failed to write system setting $key: ${e2.message}", e2)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "writeSystemSetting failed: ${e.message}")
             promise.reject("WRITE_ERROR", "Failed to write system setting $key: ${e.message}", e)
@@ -449,6 +463,24 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
             map.putString("label", pkgName)
         }
         return map
+    }
+
+    /**
+     * Write a setting directly via ContentResolver, bypassing the high-level
+     * Settings.System.putString whitelist. Uses update-then-insert pattern.
+     * Requires appropriate write permission (WRITE_SETTINGS or WRITE_SECURE_SETTINGS).
+     */
+    private fun writeSettingDirect(uri: Uri, key: String, value: String) {
+        val cv = ContentValues(2).apply {
+            put("name", key)
+            put("value", value)
+        }
+        val updated = reactContext.contentResolver.update(
+            uri, cv, "name = ?", arrayOf(key)
+        )
+        if (updated == 0) {
+            reactContext.contentResolver.insert(uri, cv)
+        }
     }
 
     /**

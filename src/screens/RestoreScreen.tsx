@@ -87,14 +87,28 @@ export function RestoreScreen({ comparison, currentProfile, onSelectCloudProfile
     try {
       const [category, ...keyParts] = diff.key.split('.');
       const rawKey = keyParts.join('.');
+      // Always write the raw value, not the formatted display value
+      const writeValue = diff.rawOldValue || diff.oldValue;
       let success = false;
 
       if (category === 'system') {
-        success = await writeSystemSetting(rawKey, diff.oldValue);
+        success = await writeSystemSetting(rawKey, writeValue);
       } else if (category === 'secure') {
-        success = await writeSecureSetting(rawKey, diff.oldValue);
+        success = await writeSecureSetting(rawKey, writeValue);
       } else if (category === 'global') {
-        success = await writeGlobalSetting(rawKey, diff.oldValue);
+        success = await writeGlobalSetting(rawKey, writeValue);
+      } else if (category === 'samsung') {
+        // Samsung settings exist across all three providers — try system first,
+        // then secure (with WRITE_SECURE_SETTINGS), then global
+        try {
+          success = await writeSystemSetting(rawKey, writeValue);
+        } catch {
+          try {
+            success = await writeSecureSetting(rawKey, writeValue);
+          } catch {
+            success = await writeGlobalSetting(rawKey, writeValue);
+          }
+        }
       }
 
       setRestoreStatuses((prev) => ({
