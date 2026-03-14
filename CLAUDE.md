@@ -274,5 +274,4 @@ App registered as JSON file handler in `app.json` `intentFilters`. Tapping any J
 ---
 
 ## Known Issues / Pre-existing
-- **profileIO.ts TypeScript errors** (lines 82, 125): `Argument of type 'Promise<string>' is not assignable to parameter of type 'string'`. Pre-existing, doesn't affect runtime.
 - **Companion app ADB connection:** Requires USB debugging ON + USB mode "File Transfer" (not "Charge only"). If phone is set to "Charge only, don't ask again," user must change via notification shade tap or Settings > Developer Options > Default USB configuration.

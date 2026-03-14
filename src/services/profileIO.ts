@@ -78,7 +78,8 @@ export function listSavedProfiles(): SavedProfileInfo[] {
     if (!(item instanceof File) || !item.name.endsWith('.json')) continue;
 
     try {
-      const content = item.text();
+      // File.text() is synchronous in expo-file-system/next but TS types say Promise
+      const content = item.text() as string;
       const parsed = JSON.parse(content);
 
       if (parsed.device && parsed.settings) {
@@ -121,7 +122,7 @@ export type SavedProfileInfo = {
  */
 export function loadProfileFromPath(filePath: string): DeviceProfile {
   const file = new File(filePath);
-  const content = file.text();
+  const content = file.text() as string;
   const parsed = JSON.parse(content);
   return validateAndMigrate(parsed);
 }
