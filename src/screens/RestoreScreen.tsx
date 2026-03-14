@@ -159,6 +159,7 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
         d.restoreType === 'auto' &&
         checkedSettings[d.key] &&
         restoreStatuses[d.key] !== 'success' &&
+        restoreStatuses[d.key] !== 'failed' &&
         canWrite(d)
     );
 
@@ -169,7 +170,8 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
             d.restoreType === 'guided' &&
             d.category !== 'defaults' &&
             checkedSettings[d.key] &&
-            restoreStatuses[d.key] !== 'success'
+            restoreStatuses[d.key] !== 'success' &&
+            restoreStatuses[d.key] !== 'failed'
         )
       : [];
 
@@ -239,34 +241,36 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
   // All restorable diffs (auto + unlocked secure)
   const allRestorableDiffs = [...autoDiffs, ...secureAutoDiffs];
 
-  // Count stats — filter out already-restored items
+  // Count stats — filter out already-attempted items (success OR failed)
   const successCount = Object.values(restoreStatuses).filter((s) => s === 'success').length;
+  const failedCount = Object.values(restoreStatuses).filter((s) => s === 'failed').length;
   const pendingRestorableCount = allRestorableDiffs.filter(
-    (d) => checkedSettings[d.key] && restoreStatuses[d.key] !== 'success'
+    (d) => checkedSettings[d.key] && restoreStatuses[d.key] !== 'success' && restoreStatuses[d.key] !== 'failed'
   ).length;
 
-  // Group auto diffs by SettingGroup, excluding already-restored
+  // Group auto diffs by SettingGroup, excluding already-attempted (success OR failed)
+  const isAttempted = (d: SettingDiff) => restoreStatuses[d.key] === 'success' || restoreStatuses[d.key] === 'failed';
   const autoGrouped = groupDiffsByGroup(
-    autoDiffs.filter((d) => restoreStatuses[d.key] !== 'success')
+    autoDiffs.filter((d) => !isAttempted(d))
   );
   const secureGrouped = groupDiffsByGroup(
-    secureAutoDiffs.filter((d) => restoreStatuses[d.key] !== 'success')
+    secureAutoDiffs.filter((d) => !isAttempted(d))
   );
   const guidedGrouped = groupDiffsByGroup(
     (hasSecureSettings
       ? guidedDiffs.filter((d) => d.category === 'defaults')
       : guidedDiffs
-    ).filter((d) => restoreStatuses[d.key] !== 'success')
+    ).filter((d) => !isAttempted(d))
   );
   const visibleApps = comparison.apps; // Apps don't auto-remove
 
-  // Remaining items that haven't been restored
-  const remainingAutoCount = autoDiffs.filter((d) => restoreStatuses[d.key] !== 'success').length;
-  const remainingSecureCount = secureAutoDiffs.filter((d) => restoreStatuses[d.key] !== 'success').length;
+  // Remaining items that haven't been attempted
+  const remainingAutoCount = autoDiffs.filter((d) => !isAttempted(d)).length;
+  const remainingSecureCount = secureAutoDiffs.filter((d) => !isAttempted(d)).length;
   const remainingGuidedCount = (hasSecureSettings
     ? guidedDiffs.filter((d) => d.category === 'defaults')
     : guidedDiffs
-  ).filter((d) => restoreStatuses[d.key] !== 'success').length;
+  ).filter((d) => !isAttempted(d)).length;
 
   const isCrossDevice = importedProfile && currentProfile &&
     importedProfile.device.model !== currentProfile.device.model;
@@ -310,14 +314,26 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
             restoreStatuses={restoreStatuses}
           />
         )}
+        {failedCount > 0 && (
+          <FailedList
+            diffs={comparison.settings}
+            restoreStatuses={restoreStatuses}
+          />
+        )}
         {pendingRestorableCount > 0 && (
           <PrimaryButton
             label={restoring ? 'Restoring...' : `Restore ${pendingRestorableCount} Checked Settings`}
             onPress={handleRestoreAll}
           />
         )}
-        {pendingRestorableCount === 0 && successCount > 0 && (
-          <Text style={styles.allDoneBanner}>All checked settings restored!</Text>
+        {pendingRestorableCount === 0 && (successCount > 0 || failedCount > 0) && (
+          <Text style={styles.allDoneBanner}>
+            {failedCount > 0 && successCount > 0
+              ? `Done! ${successCount} restored, ${failedCount} blocked by Android.`
+              : failedCount > 0
+              ? `${failedCount} settings blocked by Android.`
+              : 'All checked settings restored!'}
+          </Text>
         )}
         {remainingGuidedCount > 0 && (
           <View style={styles.manualBox}>
@@ -504,6 +520,43 @@ function RestoredList({
         <View style={{ gap: 2, marginTop: 4 }}>
           {restored.map((d) => (
             <Text key={d.key} style={{ color: '#4ade80', fontSize: 12, paddingLeft: 8 }}>
+              {d.label}
+            </Text>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function FailedList({
+  diffs,
+  restoreStatuses,
+}: {
+  diffs: SettingDiff[];
+  restoreStatuses: Record<string, RestoreStatus>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const failed = diffs.filter((d) => restoreStatuses[d.key] === 'failed');
+  if (failed.length === 0) return null;
+
+  return (
+    <View style={{ marginBottom: 8 }}>
+      <Pressable onPress={() => setExpanded(!expanded)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Text style={{ color: '#f87171', fontSize: 16, fontWeight: '700', marginBottom: 8 }}>
+          {failed.length} setting{failed.length !== 1 ? 's' : ''} couldn't be restored
+        </Text>
+        <Text style={{ color: '#f87171', fontSize: 12, marginBottom: 8 }}>{expanded ? '▾' : '▸'}</Text>
+      </Pressable>
+      {!expanded && (
+        <Text style={{ color: '#6b7fa0', fontSize: 11, marginTop: -4 }}>
+          OS restrictions — these settings are protected by Android
+        </Text>
+      )}
+      {expanded && (
+        <View style={{ gap: 2, marginTop: 4 }}>
+          {failed.map((d) => (
+            <Text key={d.key} style={{ color: '#f87171', fontSize: 12, paddingLeft: 8 }}>
               {d.label}
             </Text>
           ))}
