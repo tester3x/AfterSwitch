@@ -114,6 +114,14 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
 
       if (category === 'system') {
         success = await writeSystemSetting(rawKey, writeValue);
+        // If system whitelist blocked it and we have WRITE_SECURE_SETTINGS,
+        // try secure/global providers (Samsung settings cross namespaces)
+        if (!success && hasSecureSettings) {
+          success = await writeSecureSetting(rawKey, writeValue);
+          if (!success) {
+            success = await writeGlobalSetting(rawKey, writeValue);
+          }
+        }
       } else if (category === 'secure') {
         success = await writeSecureSetting(rawKey, writeValue);
       } else if (category === 'global') {
@@ -121,12 +129,10 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
       } else if (category === 'samsung') {
         // Samsung settings exist across all three providers — try system first,
         // then secure (with WRITE_SECURE_SETTINGS), then global
-        try {
-          success = await writeSystemSetting(rawKey, writeValue);
-        } catch {
-          try {
-            success = await writeSecureSetting(rawKey, writeValue);
-          } catch {
+        success = await writeSystemSetting(rawKey, writeValue);
+        if (!success) {
+          success = await writeSecureSetting(rawKey, writeValue);
+          if (!success) {
             success = await writeGlobalSetting(rawKey, writeValue);
           }
         }
@@ -139,7 +145,7 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
     } catch {
       setRestoreStatuses((prev) => ({ ...prev, [diff.key]: 'failed' }));
     }
-  }, []);
+  }, [hasSecureSettings]);
 
   const handleRestoreAll = useCallback(async () => {
     if (!comparison || restoring) return;
@@ -318,7 +324,16 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
           <FailedList
             diffs={comparison.settings}
             restoreStatuses={restoreStatuses}
+            hasSecureSettings={hasSecureSettings}
           />
+        )}
+        {!hasSecureSettings && pendingRestorableCount > 0 && failedCount === 0 && (
+          <View style={styles.companionBox}>
+            <Text style={styles.companionTitle}>Companion App Recommended</Text>
+            <Text style={styles.companionText}>
+              Most settings need deeper access that Android restricts. Without the companion app, only a few basic settings can be restored. Connect via USB to unlock everything.
+            </Text>
+          </View>
         )}
         {pendingRestorableCount > 0 && (
           <PrimaryButton
@@ -329,9 +344,9 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
         {pendingRestorableCount === 0 && (successCount > 0 || failedCount > 0) && (
           <Text style={styles.allDoneBanner}>
             {failedCount > 0 && successCount > 0
-              ? `Done! ${successCount} restored, ${failedCount} blocked by Android.`
+              ? `Done! ${successCount} restored, ${failedCount} need companion.`
               : failedCount > 0
-              ? `${failedCount} settings blocked by Android.`
+              ? `${failedCount} settings need the companion app.`
               : 'All checked settings restored!'}
           </Text>
         )}
@@ -535,9 +550,11 @@ function RestoredList({
 function FailedList({
   diffs,
   restoreStatuses,
+  hasSecureSettings,
 }: {
   diffs: SettingDiff[];
   restoreStatuses: Record<string, RestoreStatus>;
+  hasSecureSettings: boolean | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   const failed = diffs.filter((d) => restoreStatuses[d.key] === 'failed');
@@ -547,13 +564,15 @@ function FailedList({
     <View style={{ marginBottom: 8 }}>
       <Pressable onPress={() => setExpanded(!expanded)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
         <Text style={{ color: '#f87171', fontSize: 16, fontWeight: '700', marginBottom: 8 }}>
-          {failed.length} setting{failed.length !== 1 ? 's' : ''} couldn't be restored
+          {failed.length} setting{failed.length !== 1 ? 's' : ''} need the companion app
         </Text>
         <Text style={{ color: '#f87171', fontSize: 12, marginBottom: 8 }}>{expanded ? '▾' : '▸'}</Text>
       </Pressable>
       {!expanded && (
         <Text style={{ color: '#6b7fa0', fontSize: 11, marginTop: -4 }}>
-          OS restrictions — these settings are protected by Android
+          {hasSecureSettings
+            ? 'These settings are protected by Android and cannot be changed.'
+            : 'Connect the desktop companion via USB to unlock these settings.'}
         </Text>
       )}
       {expanded && (
@@ -916,6 +935,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
     paddingVertical: 8,
+  },
+  companionBox: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#60a5fa',
+  },
+  companionTitle: {
+    color: '#60a5fa',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  companionText: {
+    color: '#8090b0',
+    fontSize: 12,
+    lineHeight: 18,
   },
   permissionText: {
     color: '#b7c1d6',
