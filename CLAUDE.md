@@ -229,14 +229,14 @@ App registered as JSON file handler in `app.json` `intentFilters`. Tapping any J
 - `fb2a594` — Add native module Kotlin files for EAS build
 - `b111f1a` — Initial project scaffold
 
-### Uncommitted changes (need commit + build)
-- **Cloud auto-load** — `loadLatestCloudProfile()`, quick dirty-check, smart scan button
-- **HomeScreen redesign** — Cloud/local badges, "Settings match" / "N changed" badges, greyed scan button
-- **Guided Restore Wizard** — `GuidedWizard.tsx`, RestoreScreen wizard toggle, App.tsx `currentProfile` prop pass-through
-- **Settings Registry overhaul** — 19 curated Samsung entries, ACRONYMS map, smart generic steps, `formatSmartValue` for 0/1→OFF/ON
-- **Firestore rules + indexes** — `firestore.rules`, `firebase.json`, `.firebaserc`, `firestore.indexes.json`
-- **Quick check service** — `src/services/quickCheck.ts`
-- **SettingDiff raw values** — `rawOldValue`/`rawNewValue` on SettingDiff type + profileCompare.ts
+### Recent changes (all committed + pushed)
+- `7fa8d51` — Paginate all long lists (Scan details, Compare diffs) to prevent OOM crashes
+- `630487d` — Fix app list OOM crash: paginate 20 at a time. Fix GuidedWizard clipboard timeout leak.
+- `6412a3b` — Restore: collapsible sections, remove Install All button, cleaner app install UX
+- `5b96121` — Compare: change profile button + info text. Restore: source label + cross-device warning
+- `226decb` — Compare: collapsed by default, persisted state, single value toggle, same-device fix
+- `6871efd` — Fix cloud profile badge: re-check after auth resolves (race condition)
+- `09c5c0f` — Dedup cloud profiles: one per device model, auto-cleanup old dupes
 
 ---
 
