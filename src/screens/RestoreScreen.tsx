@@ -499,6 +499,7 @@ function CollapsibleGroup({
   onOpenSettings: (intent: string) => void;
   guided?: boolean;
 }) {
+  const [itemsShown, setItemsShown] = useState(30);
   const checkedCount = diffs.filter((d) => checkedSettings[d.key]).length;
   const failedCount = diffs.filter((d) => restoreStatuses[d.key] === 'failed').length;
 
@@ -517,7 +518,7 @@ function CollapsibleGroup({
 
       {expanded && (
         <View style={styles.groupItems}>
-          {diffs.map((diff) => (
+          {diffs.slice(0, itemsShown).map((diff) => (
             <RestoreItem
               key={diff.key}
               diff={diff}
@@ -530,6 +531,16 @@ function CollapsibleGroup({
               guided={guided}
             />
           ))}
+          {itemsShown < diffs.length && (
+            <Pressable
+              style={styles.showMoreBtn}
+              onPress={() => setItemsShown((prev) => prev + 30)}
+            >
+              <Text style={styles.showMoreText}>
+                Show More ({diffs.length - itemsShown} remaining)
+              </Text>
+            </Pressable>
+          )}
         </View>
       )}
     </View>
