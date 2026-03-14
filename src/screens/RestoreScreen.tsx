@@ -342,7 +342,10 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
             </Text>
             <Pressable
               style={styles.wizardBtn}
-              onPress={() => setWizardActive(true)}
+              onPress={() => {
+                setWizardActive(true);
+                setSectionCollapsed((prev) => ({ ...prev, guided: false }));
+              }}
             >
               <Text style={styles.wizardBtnText}>Run the wizard?</Text>
             </Pressable>
