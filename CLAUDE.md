@@ -230,6 +230,8 @@ App registered as JSON file handler in `app.json` `intentFilters`. Tapping any J
 - `b111f1a` — Initial project scaffold
 
 ### Recent changes (all committed + pushed)
+- `4c44f28` — Paginate CollapsibleGroup diffs in RestoreScreen to prevent OOM on large groups
+- `6445fc6` — Update CLAUDE.md with recent commit history
 - `7fa8d51` — Paginate all long lists (Scan details, Compare diffs) to prevent OOM crashes
 - `630487d` — Fix app list OOM crash: paginate 20 at a time. Fix GuidedWizard clipboard timeout leak.
 - `6412a3b` — Restore: collapsible sections, remove Install All button, cleaner app install UX
