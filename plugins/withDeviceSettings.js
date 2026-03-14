@@ -477,6 +477,8 @@ function withDeviceSettingsPermissions(config) {
     const permissionsToAdd = [
       // For writing Settings.System values
       "android.permission.WRITE_SETTINGS",
+      // For writing Settings.Secure values (granted via ADB companion app)
+      "android.permission.WRITE_SECURE_SETTINGS",
       // For listing all installed packages on Android 11+
       "android.permission.QUERY_ALL_PACKAGES",
     ];
