@@ -14,9 +14,10 @@ type Props = {
   importedProfile: DeviceProfile | null;
   comparison: ComparisonResult | null;
   onSelectCloudProfile: (profile: DeviceProfile) => void;
+  onClearProfile: () => void;
 };
 
-export function CompareScreen({ currentProfile, importedProfile, comparison, onSelectCloudProfile }: Props) {
+export function CompareScreen({ currentProfile, importedProfile, comparison, onSelectCloudProfile, onClearProfile }: Props) {
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [loaded, setLoaded] = useState(false);
 
@@ -63,8 +64,16 @@ export function CompareScreen({ currentProfile, importedProfile, comparison, onS
   return (
     <>
       <SectionCard title="Comparison Summary">
-        <Text style={styles.deviceCompare}>
-          {importedProfile.device.nickname} → {currentProfile?.device.nickname || 'This Phone'}
+        <View style={styles.deviceRow}>
+          <Text style={styles.deviceCompare}>
+            {importedProfile.device.nickname} → {currentProfile?.device.nickname || 'This Phone'}
+          </Text>
+          <Pressable onPress={onClearProfile} style={styles.changeBtn}>
+            <Text style={styles.changeBtnText}>Change</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.infoText}>
+          Only showing settings that are different between the 2 devices.
         </Text>
         <View style={styles.summaryRow}>
           <SummaryBadge count={summary.totalDiffs} label="Total Diffs" color="#e6b800" />
@@ -210,10 +219,34 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 8,
   },
+  deviceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
   deviceCompare: {
     color: '#e6b800',
     fontSize: 14,
     fontWeight: '600',
+    flex: 1,
+  },
+  changeBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#6b7fa0',
+  },
+  changeBtnText: {
+    color: '#6b7fa0',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  infoText: {
+    color: '#6b7fa0',
+    fontSize: 12,
+    fontStyle: 'italic',
     marginBottom: 8,
   },
   summaryRow: {

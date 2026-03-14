@@ -258,6 +258,12 @@ export default function App() {
     }
   }, [currentProfile]);
 
+  const handleClearProfile = useCallback(async () => {
+    setImportedProfile(null);
+    await AsyncStorage.removeItem(STORAGE_KEY_IMPORTED);
+    setStatusMessage('Ready.');
+  }, []);
+
   const handleSelectCloudProfile = useCallback(async (profile: DeviceProfile) => {
     setImportedProfile(profile);
     await AsyncStorage.setItem(STORAGE_KEY_IMPORTED, JSON.stringify(profile));
@@ -398,13 +404,16 @@ export default function App() {
               importedProfile={importedProfile}
               comparison={comparison}
               onSelectCloudProfile={handleSelectCloudProfile}
+              onClearProfile={handleClearProfile}
             />
           )}
           {activeTab === 'restore' && (
             <RestoreScreen
               comparison={comparison}
               currentProfile={currentProfile}
+              importedProfile={importedProfile}
               onSelectCloudProfile={handleSelectCloudProfile}
+              onClearProfile={handleClearProfile}
             />
           )}
           {activeTab === 'browse' && (

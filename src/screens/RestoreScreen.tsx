@@ -20,12 +20,14 @@ import {
 type Props = {
   comparison: ComparisonResult | null;
   currentProfile: DeviceProfile | null;
+  importedProfile: DeviceProfile | null;
   onSelectCloudProfile: (profile: DeviceProfile) => void;
+  onClearProfile: () => void;
 };
 
 type RestoreStatus = 'pending' | 'restoring' | 'success' | 'failed';
 
-export function RestoreScreen({ comparison, currentProfile, onSelectCloudProfile }: Props) {
+export function RestoreScreen({ comparison, currentProfile, importedProfile, onSelectCloudProfile, onClearProfile }: Props) {
   const [restoreStatuses, setRestoreStatuses] = useState<Record<string, RestoreStatus>>({});
   const [hasWriteSettings, setHasWriteSettings] = useState<boolean | null>(null);
   const [hasSecureSettings, setHasSecureSettings] = useState<boolean | null>(null);
@@ -225,8 +227,32 @@ export function RestoreScreen({ comparison, currentProfile, onSelectCloudProfile
     : guidedDiffs
   ).filter((d) => restoreStatuses[d.key] !== 'success').length;
 
+  const isCrossDevice = importedProfile && currentProfile &&
+    importedProfile.device.model !== currentProfile.device.model;
+
   return (
     <>
+      {/* Source profile info */}
+      {importedProfile && (
+        <SectionCard title="Restore Source">
+          <View style={styles.sourceRow}>
+            <Text style={styles.sourceText}>
+              Restoring from: {importedProfile.device.nickname}
+            </Text>
+            <Pressable onPress={onClearProfile} style={styles.changeSourceBtn}>
+              <Text style={styles.changeSourceBtnText}>Change</Text>
+            </Pressable>
+          </View>
+          {isCrossDevice && (
+            <View style={styles.warningBox}>
+              <Text style={styles.warningText}>
+                These devices are different models ({importedProfile.device.model} → {currentProfile?.device.model}). Some settings may not apply or behave differently on this device.
+              </Text>
+            </View>
+          )}
+        </SectionCard>
+      )}
+
       {/* Progress + Restore Button */}
       <SectionCard title="Restore Progress">
         {successCount > 0 && (
@@ -558,6 +584,42 @@ const styles = StyleSheet.create({
     color: '#8090b0',
     fontSize: 14,
     lineHeight: 20,
+  },
+  sourceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  sourceText: {
+    color: '#e6b800',
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+  },
+  changeSourceBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#6b7fa0',
+  },
+  changeSourceBtnText: {
+    color: '#6b7fa0',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  warningBox: {
+    backgroundColor: '#2d2000',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#e6b800',
+  },
+  warningText: {
+    color: '#e6b800',
+    fontSize: 12,
+    lineHeight: 18,
   },
   successBanner: {
     color: '#4ade80',
