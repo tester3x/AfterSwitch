@@ -230,6 +230,7 @@ App registered as JSON file handler in `app.json` `intentFilters`. Tapping any J
 - `b111f1a` — Initial project scaffold
 
 ### Recent changes (all committed + pushed)
+- `23efafb` — Update CLAUDE.md with recent commit history
 - `a9c39c5` — Add profile name to Restore Progress card (gold device nickname)
 - `9e68dba` — Fix profileIO.ts TypeScript errors (File.text() as string casts)
 - `ff0ef33` — Update CLAUDE.md with latest commit hashes
@@ -277,4 +278,5 @@ App registered as JSON file handler in `app.json` `intentFilters`. Tapping any J
 ---
 
 ## Known Issues / Pre-existing
+- **Auto-restore fails without permissions (3/14/2026 field test):** All 120 auto-restore settings fail with 0 permissions granted. Needs: (1) `WRITE_SETTINGS` — granted via Android system UI prompt (permission card already in UI), (2) `WRITE_SECURE_SETTINGS` — granted via companion app ADB. Without these, auto-restore has zero effect.
 - **Companion app ADB connection:** Requires USB debugging ON + USB mode "File Transfer" (not "Charge only"). If phone is set to "Charge only, don't ask again," user must change via notification shade tap or Settings > Developer Options > Default USB configuration.
