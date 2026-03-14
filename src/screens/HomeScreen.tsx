@@ -45,12 +45,12 @@ export function HomeScreen({
   return (
     <>
       {userName && (
-        <SectionCard title="Account">
-          <View style={styles.accountRow}>
-            <Text style={styles.accountName}>{userName}</Text>
-            <PrimaryButton label="Sign Out" onPress={onSignOut} />
-          </View>
-        </SectionCard>
+        <View style={styles.accountBar}>
+          <Text style={styles.accountName}>{userName}</Text>
+          <Pressable onPress={onSignOut} style={styles.signOutBtn}>
+            <Text style={styles.signOutText}>Sign Out</Text>
+          </Pressable>
+        </View>
       )}
 
       {/* Show saved profile immediately with source badge */}
@@ -394,15 +394,24 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
   },
-  accountRow: {
+  accountBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    marginBottom: 8,
   },
   accountName: {
-    color: '#b7c1d6',
-    fontSize: 14,
-    flex: 1,
+    color: '#6b7a9a',
+    fontSize: 12,
+  },
+  signOutBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+  },
+  signOutText: {
+    color: '#6b7a9a',
+    fontSize: 12,
   },
   hint: {
     color: '#4a5a7a',
