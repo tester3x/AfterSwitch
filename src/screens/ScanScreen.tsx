@@ -29,6 +29,7 @@ const SCAN_STEPS: Array<{ key: keyof ScanProgress; label: string }> = [
 
 export function ScanScreen({ profile, scanning, scanProgress, savedFileName, cloudSaving, cloudSaved, onExport }: Props) {
   const [expandedCategory, setExpandedCategory] = useState<SettingsCategory | null>(null);
+  const [itemsShown, setItemsShown] = useState(30);
 
   if (scanning && scanProgress) {
     return (
@@ -74,6 +75,7 @@ export function ScanScreen({ profile, scanning, scanProgress, savedFileName, clo
 
   const toggleCategory = (cat: SettingsCategory) => {
     setExpandedCategory((prev) => (prev === cat ? null : cat));
+    setItemsShown(30);
   };
 
   const getExpandedItems = (): Array<{ key: string; value: string }> => {
@@ -150,12 +152,22 @@ export function ScanScreen({ profile, scanning, scanProgress, savedFileName, clo
           <Pressable onPress={() => setExpandedCategory(null)}>
             <Text style={styles.collapseHint}>Tap to close</Text>
           </Pressable>
-          {expandedItems.map((item) => (
+          {expandedItems.slice(0, itemsShown).map((item) => (
             <View key={item.key} style={styles.settingRow}>
               <Text style={styles.settingKey} numberOfLines={1}>{item.key}</Text>
               <Text style={styles.settingValue} numberOfLines={1}>{item.value}</Text>
             </View>
           ))}
+          {itemsShown < expandedItems.length && (
+            <Pressable
+              style={styles.showMoreBtn}
+              onPress={() => setItemsShown((prev) => prev + 30)}
+            >
+              <Text style={styles.showMoreText}>
+                Show More ({expandedItems.length - itemsShown} remaining)
+              </Text>
+            </Pressable>
+          )}
         </SectionCard>
       )}
 
@@ -349,5 +361,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     marginBottom: 8,
+  },
+  showMoreBtn: {
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#25304c',
+  },
+  showMoreText: {
+    color: '#60a5fa',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

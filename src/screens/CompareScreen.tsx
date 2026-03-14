@@ -137,8 +137,10 @@ function DiffGroup({
   collapsed: boolean;
   onToggle: () => void;
 }) {
+  const [itemsShown, setItemsShown] = useState(30);
   const isApps = !!apps && apps.length > 0;
-  const count = isApps ? apps.length : diffs.length;
+  const items = isApps ? apps : diffs;
+  const count = items.length;
   const title = isApps ? `Missing Apps (${count})` : `${GROUP_LABELS[group] || group} (${count})`;
 
   return (
@@ -150,8 +152,18 @@ function DiffGroup({
       {!collapsed && (
         <View style={styles.groupBody}>
           {isApps
-            ? apps.map((app) => <AppDiffRow key={app.packageName} app={app} />)
-            : diffs.map((diff) => <DiffRow key={diff.key} diff={diff} />)}
+            ? (apps as AppDiff[]).slice(0, itemsShown).map((app) => <AppDiffRow key={app.packageName} app={app} />)
+            : diffs.slice(0, itemsShown).map((diff) => <DiffRow key={diff.key} diff={diff} />)}
+          {itemsShown < count && (
+            <Pressable
+              style={styles.showMoreBtn}
+              onPress={() => setItemsShown((prev) => prev + 30)}
+            >
+              <Text style={styles.showMoreText}>
+                Show More ({count - itemsShown} remaining)
+              </Text>
+            </Pressable>
+          )}
         </View>
       )}
     </View>
@@ -351,5 +363,17 @@ const styles = StyleSheet.create({
     color: '#6b7fa0',
     fontSize: 11,
     fontStyle: 'italic',
+  },
+  showMoreBtn: {
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#25304c',
+  },
+  showMoreText: {
+    color: '#60a5fa',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });
