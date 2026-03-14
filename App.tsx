@@ -191,6 +191,15 @@ export default function App() {
       setProfileSource('local');
       setQuickCheck({ settingsMatch: true, checkedCount: 0, diffCount: 0 });
       await AsyncStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(profile));
+
+      // If imported profile is from the same device, sync it too so
+      // same-device comparison shows 0 diffs after a fresh scan
+      if (importedProfile && importedProfile.device.model === profile.device.model
+          && importedProfile.device.nickname === profile.device.nickname) {
+        setImportedProfile(profile);
+        await AsyncStorage.setItem(STORAGE_KEY_IMPORTED, JSON.stringify(profile));
+      }
+
       // Save locally
       const savedUri = saveProfileLocally(profile);
       const fileName = decodeURIComponent(savedUri.split('/').pop() || 'profile');
@@ -218,7 +227,7 @@ export default function App() {
     } finally {
       setScanning(false);
     }
-  }, []);
+  }, [importedProfile]);
 
   const handleExport = useCallback(async () => {
     if (!currentProfile) {
