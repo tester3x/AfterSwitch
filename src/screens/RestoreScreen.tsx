@@ -261,6 +261,14 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
 
       {/* Progress + Restore Button */}
       <SectionCard title="Restore Progress">
+        {importedProfile && (
+          <View style={styles.restoreFromRow}>
+            <Text style={styles.restoreFromLabel}>Restoring from:</Text>
+            <Text style={styles.restoreFromDevice}>
+              {importedProfile.device.nickname}
+            </Text>
+          </View>
+        )}
         {successCount > 0 && (
           <Text style={styles.successBanner}>
             {successCount} setting{successCount !== 1 ? 's' : ''} restored
@@ -707,6 +715,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingBottom: 14,
     gap: 8,
+  },
+  restoreFromRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  restoreFromLabel: {
+    color: '#6b7fa0',
+    fontSize: 13,
+  },
+  restoreFromDevice: {
+    color: '#e6b800',
+    fontSize: 14,
+    fontWeight: '700',
+    flex: 1,
   },
   successBanner: {
     color: '#4ade80',
