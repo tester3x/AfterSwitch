@@ -173,8 +173,15 @@ export default function App() {
   }, [user, cloudHasProfile]);
 
   // Compare profiles whenever either changes
+  // Skip comparison when both profiles are from the same device (same device comparing to itself = noise)
   const comparison: ComparisonResult | null = useMemo(() => {
     if (!currentProfile || !importedProfile) return null;
+    if (
+      currentProfile.device.model === importedProfile.device.model &&
+      currentProfile.device.nickname === importedProfile.device.nickname
+    ) {
+      return { settings: [], apps: [], summary: { totalDiffs: 0, autoRestoreCount: 0, guidedCount: 0, infoCount: 0, missingApps: 0 } };
+    }
     return compareProfiles(currentProfile, importedProfile);
   }, [currentProfile, importedProfile]);
 

@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SectionCard } from '../components/SectionCard';
 import { CloudProfileList } from '../components/CloudProfileList';
 import { GROUP_LABELS } from '../data/settingsRegistry';
 import { groupDiffs } from '../services/profileCompare';
 import type { ComparisonResult, DeviceProfile, SettingDiff, AppDiff, SettingGroup } from '../types/profile';
+
+const COLLAPSED_KEY = 'compare_collapsed_groups';
 
 type Props = {
   currentProfile: DeviceProfile | null;
@@ -14,6 +17,30 @@ type Props = {
 };
 
 export function CompareScreen({ currentProfile, importedProfile, comparison, onSelectCloudProfile }: Props) {
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [loaded, setLoaded] = useState(false);
+
+  // Load persisted collapsed state
+  useEffect(() => {
+    AsyncStorage.getItem(COLLAPSED_KEY)
+      .then((val) => {
+        if (val) setCollapsedGroups(JSON.parse(val));
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  // Persist expanded state on change (default = collapsed, so we track which are expanded)
+  const toggleGroup = useCallback((group: string) => {
+    setCollapsedGroups((prev) => {
+      // Default is collapsed (true). Toggle: if collapsed (true or undefined) → expand (false), if expanded (false) → collapse (true)
+      const isCurrentlyCollapsed = prev[group] !== false;
+      const next = { ...prev, [group]: isCurrentlyCollapsed ? false : true };
+      AsyncStorage.setItem(COLLAPSED_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, []);
+
   if (!importedProfile || !comparison) {
     return (
       <>
@@ -47,22 +74,31 @@ export function CompareScreen({ currentProfile, importedProfile, comparison, onS
         </View>
       </SectionCard>
 
-      {grouped.map(({ group, diffs }) => (
-        <DiffGroup key={group} group={group} diffs={diffs} />
+      {loaded && grouped.map(({ group, diffs }) => (
+        <DiffGroup
+          key={group}
+          group={group}
+          diffs={diffs}
+          collapsed={collapsedGroups[group] !== false ? true : false}
+          onToggle={() => toggleGroup(group)}
+        />
       ))}
 
-      {comparison.apps.length > 0 && (
-        <SectionCard title={`Missing Apps (${comparison.apps.length})`}>
-          {comparison.apps.map((app) => (
-            <AppDiffRow key={app.packageName} app={app} />
-          ))}
-        </SectionCard>
+      {loaded && comparison.apps.length > 0 && (
+        <DiffGroup
+          key="__apps__"
+          group={'apps' as SettingGroup}
+          diffs={[]}
+          apps={comparison.apps}
+          collapsed={collapsedGroups['apps'] !== false ? true : false}
+          onToggle={() => toggleGroup('apps')}
+        />
       )}
 
       {summary.totalDiffs === 0 && (
         <SectionCard title="All Good!">
           <Text style={styles.emptyText}>
-            No differences found. Your phones have matching settings.
+            Settings match your saved profile.
           </Text>
         </SectionCard>
       )}
@@ -79,29 +115,53 @@ function SummaryBadge({ count, label, color }: { count: number; label: string; c
   );
 }
 
-function DiffGroup({ group, diffs }: { group: SettingGroup; diffs: SettingDiff[] }) {
-  const [expanded, setExpanded] = useState(diffs.length <= 5);
+function DiffGroup({
+  group,
+  diffs,
+  apps,
+  collapsed,
+  onToggle,
+}: {
+  group: SettingGroup;
+  diffs: SettingDiff[];
+  apps?: AppDiff[];
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  const isApps = !!apps && apps.length > 0;
+  const count = isApps ? apps.length : diffs.length;
+  const title = isApps ? `Missing Apps (${count})` : `${GROUP_LABELS[group] || group} (${count})`;
 
   return (
-    <SectionCard title={`${GROUP_LABELS[group] || group} (${diffs.length})`}>
-      <Pressable onPress={() => setExpanded(!expanded)}>
-        {!expanded && (
-          <Text style={styles.expandHint}>Tap to {expanded ? 'collapse' : 'expand'}</Text>
-        )}
+    <View style={styles.groupCard}>
+      <Pressable onPress={onToggle} style={styles.groupHeader}>
+        <Text style={styles.groupTitle}>{title}</Text>
+        <Text style={styles.chevron}>{collapsed ? '▸' : '▾'}</Text>
       </Pressable>
-      {expanded &&
-        diffs.map((diff) => <DiffRow key={diff.key} diff={diff} />)}
-    </SectionCard>
+      {!collapsed && (
+        <View style={styles.groupBody}>
+          {isApps
+            ? apps.map((app) => <AppDiffRow key={app.packageName} app={app} />)
+            : diffs.map((diff) => <DiffRow key={diff.key} diff={diff} />)}
+        </View>
+      )}
+    </View>
   );
 }
 
 function DiffRow({ diff }: { diff: SettingDiff }) {
+  const [showOld, setShowOld] = useState(false);
+
   const restoreColor =
     diff.restoreType === 'auto'
       ? '#4ade80'
       : diff.restoreType === 'guided'
         ? '#60a5fa'
         : '#6b7fa0';
+
+  const displayValue = showOld ? diff.oldValue : diff.newValue;
+  const displayColor = showOld ? '#f87171' : '#4ade80';
+  const displayPrefix = showOld ? 'Old' : 'New';
 
   return (
     <View style={styles.diffRow}>
@@ -114,12 +174,15 @@ function DiffRow({ diff }: { diff: SettingDiff }) {
         </Text>
       </View>
       <View style={styles.diffValues}>
-        <Text style={styles.oldValue} numberOfLines={1}>
-          Old: {diff.oldValue}
-        </Text>
-        <Text style={styles.newValue} numberOfLines={1}>
-          New: {diff.newValue}
-        </Text>
+        <Pressable onPress={() => setShowOld(!showOld)} style={styles.stateToggle}>
+          <Text style={[styles.stateToggleLabel, { color: displayColor }]}>
+            {displayPrefix}:
+          </Text>
+          <Text style={[styles.stateToggleValue, { color: displayColor }]} numberOfLines={1}>
+            {displayValue}
+          </Text>
+          <Text style={styles.toggleArrow}>⇄</Text>
+        </Pressable>
       </View>
       {diff.description && (
         <Text style={styles.diffDescription}>{diff.description}</Text>
@@ -175,11 +238,34 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginTop: 2,
   },
-  expandHint: {
+  groupCard: {
+    backgroundColor: '#141b2d',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#25304c',
+    overflow: 'hidden',
+  },
+  groupHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 14,
+  },
+  groupTitle: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '700',
+    flex: 1,
+  },
+  chevron: {
     color: '#6b7fa0',
-    fontSize: 12,
-    textAlign: 'center',
-    paddingVertical: 4,
+    fontSize: 18,
+    paddingLeft: 8,
+  },
+  groupBody: {
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+    gap: 8,
   },
   diffRow: {
     backgroundColor: '#0f1628',
@@ -204,17 +290,29 @@ const styles = StyleSheet.create({
   },
   diffValues: {
     flexDirection: 'row',
-    gap: 12,
+  },
+  stateToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flex: 1,
+  },
+  stateToggleLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  stateToggleValue: {
+    fontSize: 12,
+    flex: 1,
+  },
+  toggleArrow: {
+    color: '#6b7fa0',
+    fontSize: 12,
+    paddingLeft: 6,
   },
   oldValue: {
     color: '#f87171',
     fontSize: 12,
-    flex: 1,
-  },
-  newValue: {
-    color: '#4ade80',
-    fontSize: 12,
-    flex: 1,
   },
   diffDescription: {
     color: '#6b7fa0',
