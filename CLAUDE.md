@@ -230,6 +230,9 @@ App registered as JSON file handler in `app.json` `intentFilters`. Tapping any J
 - `b111f1a` — Initial project scaffold
 
 ### Recent changes (all committed + pushed)
+- `a9c39c5` — Add profile name to Restore Progress card (gold device nickname)
+- `9e68dba` — Fix profileIO.ts TypeScript errors (File.text() as string casts)
+- `ff0ef33` — Update CLAUDE.md with latest commit hashes
 - `4c44f28` — Paginate CollapsibleGroup diffs in RestoreScreen to prevent OOM on large groups
 - `6445fc6` — Update CLAUDE.md with recent commit history
 - `7fa8d51` — Paginate all long lists (Scan details, Compare diffs) to prevent OOM crashes
