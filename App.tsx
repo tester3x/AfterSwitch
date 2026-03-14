@@ -164,6 +164,14 @@ export default function App() {
     return () => sub.remove();
   }, [handleDeepLink]);
 
+  // Re-check cloud profile once auth resolves (startup race condition fix)
+  useEffect(() => {
+    if (!user || cloudHasProfile) return;
+    loadLatestCloudProfile()
+      .then((p) => setCloudHasProfile(!!p))
+      .catch(() => {});
+  }, [user, cloudHasProfile]);
+
   // Compare profiles whenever either changes
   const comparison: ComparisonResult | null = useMemo(() => {
     if (!currentProfile || !importedProfile) return null;
