@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Animated, Linking, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SectionCard } from '../components/SectionCard';
 import { CloudProfileList } from '../components/CloudProfileList';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -34,6 +34,7 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
   const [checkedSettings, setCheckedSettings] = useState<Record<string, boolean>>({});
   const [checkedApps, setCheckedApps] = useState<Record<string, boolean>>({});
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [sectionCollapsed, setSectionCollapsed] = useState<Record<string, boolean>>({});
   const [restoring, setRestoring] = useState(false);
   const [wizardActive, setWizardActive] = useState(false);
 
@@ -74,6 +75,10 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
 
   const toggleGroup = useCallback((groupKey: string) => {
     setExpandedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
+  }, []);
+
+  const toggleSection = useCallback((key: string) => {
+    setSectionCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
   const handleRequestWritePermission = useCallback(async () => {
@@ -297,7 +302,11 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
 
       {/* Auto-Restore groups */}
       {remainingAutoCount > 0 && (
-        <SectionCard title={`Auto-Restore (${remainingAutoCount})`}>
+        <CollapsibleSectionCard
+          title={`Auto-Restore (${remainingAutoCount})`}
+          collapsed={sectionCollapsed['auto'] ?? false}
+          onToggle={() => toggleSection('auto')}
+        >
           <Text style={styles.sectionDescription}>
             These settings can be applied automatically. Uncheck any you want to skip.
           </Text>
@@ -314,12 +323,16 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
               onOpenSettings={handleOpenSettings}
             />
           ))}
-        </SectionCard>
+        </CollapsibleSectionCard>
       )}
 
       {/* Unlocked Restore groups */}
       {hasSecureSettings && remainingSecureCount > 0 && (
-        <SectionCard title={`Unlocked Restore (${remainingSecureCount})`}>
+        <CollapsibleSectionCard
+          title={`Unlocked Restore (${remainingSecureCount})`}
+          collapsed={sectionCollapsed['secure'] ?? false}
+          onToggle={() => toggleSection('secure')}
+        >
           <Text style={styles.sectionDescription}>
             Desktop companion unlocked these. Uncheck any you want to skip.
           </Text>
@@ -336,12 +349,16 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
               onOpenSettings={handleOpenSettings}
             />
           ))}
-        </SectionCard>
+        </CollapsibleSectionCard>
       )}
 
       {/* Guided Restore groups */}
       {remainingGuidedCount > 0 && (
-        <SectionCard title={`Guided Restore (${remainingGuidedCount})`}>
+        <CollapsibleSectionCard
+          title={`Guided Restore (${remainingGuidedCount})`}
+          collapsed={sectionCollapsed['guided'] ?? false}
+          onToggle={() => toggleSection('guided')}
+        >
           {wizardActive ? (
             <GuidedWizard
               diffs={(hasSecureSettings
@@ -379,14 +396,18 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
               ))}
             </>
           )}
-        </SectionCard>
+        </CollapsibleSectionCard>
       )}
 
       {/* Missing Apps */}
       {visibleApps.length > 0 && (
-        <SectionCard title={`Missing Apps (${visibleApps.length})`}>
+        <CollapsibleSectionCard
+          title={`Missing Apps (${visibleApps.length})`}
+          collapsed={sectionCollapsed['apps'] ?? false}
+          onToggle={() => toggleSection('apps')}
+        >
           <Text style={styles.sectionDescription}>
-            Apps from your old phone not on this one.
+            Tap an app to open it in the Play Store.
           </Text>
           {visibleApps.map((app) => (
             <AppRestoreRow
@@ -397,18 +418,33 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
               onInstall={() => handleInstallApp(app.packageName)}
             />
           ))}
-          <PrimaryButton
-            label={`Install ${Object.values(checkedApps).filter(Boolean).length} Checked Apps`}
-            onPress={() => {
-              const toInstall = comparison.apps.filter((a) => checkedApps[a.packageName]);
-              for (const app of toInstall) {
-                handleInstallApp(app.packageName);
-              }
-            }}
-          />
-        </SectionCard>
+        </CollapsibleSectionCard>
       )}
     </>
+  );
+}
+
+// ==================== Collapsible Section ====================
+
+function CollapsibleSectionCard({
+  title,
+  collapsed,
+  onToggle,
+  children,
+}: {
+  title: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={styles.sectionCard}>
+      <Pressable onPress={onToggle} style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>{title}</Text>
+        <Text style={styles.sectionChevron}>{collapsed ? '▸' : '▾'}</Text>
+      </Pressable>
+      {!collapsed && <View style={styles.sectionBody}>{children}</View>}
+    </View>
   );
 }
 
@@ -620,6 +656,35 @@ const styles = StyleSheet.create({
     color: '#e6b800',
     fontSize: 12,
     lineHeight: 18,
+  },
+  sectionCard: {
+    backgroundColor: '#141b2d',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#25304c',
+    overflow: 'hidden',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 14,
+  },
+  sectionTitle: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '700',
+    flex: 1,
+  },
+  sectionChevron: {
+    color: '#6b7fa0',
+    fontSize: 18,
+    paddingLeft: 8,
+  },
+  sectionBody: {
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+    gap: 8,
   },
   successBanner: {
     color: '#4ade80',
