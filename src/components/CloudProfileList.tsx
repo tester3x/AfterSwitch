@@ -7,6 +7,7 @@ import type { DeviceProfile } from '../types/profile';
 /** Unified profile entry — could come from private cloud or shared collection. */
 type ProfileEntry = CloudProfileMeta & {
   source: 'private' | 'shared';
+  isSharedToCommunity: boolean;
 };
 
 type Props = {
@@ -29,7 +30,14 @@ export function CloudProfileList({ onSelect }: Props) {
         getMySharedProfiles().catch(() => []), // Don't fail if shared query errors
       ]);
 
-      const privateEntries: ProfileEntry[] = privateList.map((p) => ({ ...p, source: 'private' as const }));
+      // Track which models are shared to community
+      const sharedModels = new Set(sharedList.map((s) => s.model));
+
+      const privateEntries: ProfileEntry[] = privateList.map((p) => ({
+        ...p,
+        source: 'private' as const,
+        isSharedToCommunity: sharedModels.has(p.model),
+      }));
       const sharedEntries: ProfileEntry[] = sharedList.map((s) => ({
         id: s.id,
         deviceName: s.deviceName,
@@ -39,6 +47,7 @@ export function CloudProfileList({ onSelect }: Props) {
         settingsCount: s.settingsCount,
         appsCount: s.appsCount,
         source: 'shared' as const,
+        isSharedToCommunity: true,
       }));
 
       // Deduplicate: if same model exists in both, keep private (it's the primary)
@@ -140,7 +149,7 @@ export function CloudProfileList({ onSelect }: Props) {
           <View style={styles.profileInfo}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={styles.profileName}>{meta.deviceName}</Text>
-              {meta.source === 'shared' && (
+              {meta.isSharedToCommunity && (
                 <Text style={{ color: '#60a5fa', fontSize: 10, fontWeight: '600' }}>SHARED</Text>
               )}
             </View>
