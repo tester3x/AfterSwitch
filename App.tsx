@@ -13,7 +13,7 @@ import type { AppTab, ComparisonResult, DeviceProfile, ScanProgress } from './sr
 import { buildProfile } from './src/services/profileBuilder';
 import { compareProfiles } from './src/services/profileCompare';
 import { exportProfileJson, saveProfileLocally, importProfileFromUri } from './src/services/profileIO';
-import { saveProfileToCloud, loadLatestCloudProfile } from './src/services/cloudProfiles';
+import { saveProfileToCloud, loadLatestCloudProfile, loadCloudProfile } from './src/services/cloudProfiles';
 import { getProfileByShareCode } from './src/services/sharedProfiles';
 import { quickSettingsCheck, type QuickCheckResult } from './src/services/quickCheck';
 import { onAuthChanged, signOutUser, type User } from './src/services/firebase';
@@ -164,13 +164,14 @@ export default function App() {
     return () => sub.remove();
   }, [handleDeepLink]);
 
-  // Re-check cloud profile once auth resolves (startup race condition fix)
+  // Check if THIS device's profile exists in the cloud (not just any profile)
   useEffect(() => {
-    if (!user || cloudHasProfile) return;
-    loadLatestCloudProfile()
+    if (!user || !currentProfile) return;
+    const safeModel = currentProfile.device.model.replace(/[^a-zA-Z0-9-_]/g, '-');
+    loadCloudProfile(safeModel)
       .then((p) => setCloudHasProfile(!!p))
-      .catch(() => {});
-  }, [user, cloudHasProfile]);
+      .catch(() => setCloudHasProfile(false));
+  }, [user, currentProfile]);
 
   // Compare profiles whenever either changes
   // Skip comparison when both profiles are from the same device (same device comparing to itself = noise)

@@ -1,14 +1,20 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { listCloudProfiles, loadCloudProfile, deleteCloudProfile, type CloudProfileMeta } from '../services/cloudProfiles';
+import { getMySharedProfiles, getSharedProfileById, unshareProfile } from '../services/sharedProfiles';
 import type { DeviceProfile } from '../types/profile';
+
+/** Unified profile entry — could come from private cloud or shared collection. */
+type ProfileEntry = CloudProfileMeta & {
+  source: 'private' | 'shared';
+};
 
 type Props = {
   onSelect: (profile: DeviceProfile) => void;
 };
 
 export function CloudProfileList({ onSelect }: Props) {
-  const [profiles, setProfiles] = useState<CloudProfileMeta[]>([]);
+  const [profiles, setProfiles] = useState<ProfileEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -17,8 +23,29 @@ export function CloudProfileList({ onSelect }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const list = await listCloudProfiles();
-      setProfiles(list);
+      // Fetch both private cloud profiles and user's own shared profiles
+      const [privateList, sharedList] = await Promise.all([
+        listCloudProfiles(),
+        getMySharedProfiles().catch(() => []), // Don't fail if shared query errors
+      ]);
+
+      const privateEntries: ProfileEntry[] = privateList.map((p) => ({ ...p, source: 'private' as const }));
+      const sharedEntries: ProfileEntry[] = sharedList.map((s) => ({
+        id: s.id,
+        deviceName: s.deviceName,
+        model: s.model,
+        manufacturer: s.manufacturer,
+        savedAt: s.sharedAt,
+        settingsCount: s.settingsCount,
+        appsCount: s.appsCount,
+        source: 'shared' as const,
+      }));
+
+      // Deduplicate: if same model exists in both, keep private (it's the primary)
+      const privateModels = new Set(privateEntries.map((p) => p.model));
+      const uniqueShared = sharedEntries.filter((s) => !privateModels.has(s.model));
+
+      setProfiles([...privateEntries, ...uniqueShared]);
     } catch (e) {
       setError(`Failed to load profiles: ${String(e)}`);
     } finally {
@@ -30,10 +57,12 @@ export function CloudProfileList({ onSelect }: Props) {
     fetchProfiles();
   }, [fetchProfiles]);
 
-  const handleSelect = useCallback(async (meta: CloudProfileMeta) => {
+  const handleSelect = useCallback(async (meta: ProfileEntry) => {
     setLoadingId(meta.id);
     try {
-      const profile = await loadCloudProfile(meta.id);
+      const profile = meta.source === 'shared'
+        ? await getSharedProfileById(meta.id)
+        : await loadCloudProfile(meta.id);
       if (!profile) {
         setError('Profile not found in cloud.');
         return;
@@ -46,21 +75,30 @@ export function CloudProfileList({ onSelect }: Props) {
     }
   }, [onSelect]);
 
-  const handleDelete = useCallback((meta: CloudProfileMeta) => {
+  const handleDelete = useCallback((meta: ProfileEntry) => {
+    const action = meta.source === 'shared' ? 'Unshare' : 'Delete';
+    const message = meta.source === 'shared'
+      ? `Remove "${meta.deviceName}" from the community? Your private copy (if any) won't be affected.`
+      : `Remove "${meta.deviceName}" from the cloud? This can't be undone.`;
+
     Alert.alert(
-      'Delete Profile',
-      `Remove "${meta.deviceName}" from the cloud? This can't be undone.`,
+      `${action} Profile`,
+      message,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete',
+          text: action,
           style: 'destructive',
           onPress: async () => {
             try {
-              await deleteCloudProfile(meta.id);
+              if (meta.source === 'shared') {
+                await unshareProfile(meta.id);
+              } else {
+                await deleteCloudProfile(meta.id);
+              }
               setProfiles((prev) => prev.filter((p) => p.id !== meta.id));
             } catch (e) {
-              setError(`Delete failed: ${String(e)}`);
+              setError(`${action} failed: ${String(e)}`);
             }
           },
         },
@@ -100,7 +138,12 @@ export function CloudProfileList({ onSelect }: Props) {
           activeOpacity={0.7}
         >
           <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>{meta.deviceName}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.profileName}>{meta.deviceName}</Text>
+              {meta.source === 'shared' && (
+                <Text style={{ color: '#60a5fa', fontSize: 10, fontWeight: '600' }}>SHARED</Text>
+              )}
+            </View>
             <Text style={styles.profileMeta}>
               {meta.manufacturer} {meta.model} · {meta.settingsCount} settings · {meta.appsCount} apps
             </Text>

@@ -332,22 +332,45 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
                 return
             }
             Settings.System.putString(reactContext.contentResolver, key, value)
-            Log.d(TAG, "Wrote system setting: $key = $value")
-            promise.resolve(true)
+
+            // Verify the write actually persisted (Android silently blocks non-whitelisted settings)
+            val readBack = Settings.System.getString(reactContext.contentResolver, key)
+            if (readBack == value) {
+                Log.d(TAG, "Wrote system setting: $key = $value")
+                promise.resolve(true)
+            } else {
+                // putString didn't throw but the value didn't stick — try direct ContentResolver
+                Log.w(TAG, "putString silent fail for $key (got $readBack, wanted $value), trying direct")
+                writeSettingDirect(Settings.System.CONTENT_URI, key, value)
+                val readBack2 = Settings.System.getString(reactContext.contentResolver, key)
+                if (readBack2 == value) {
+                    Log.d(TAG, "Wrote system setting via ContentResolver: $key = $value")
+                    promise.resolve(true)
+                } else {
+                    Log.w(TAG, "System setting $key is OS-restricted (write silently blocked)")
+                    promise.resolve(false)
+                }
+            }
         } catch (e: IllegalArgumentException) {
             // Samsung custom setting not in Android whitelist — try direct ContentResolver
             Log.w(TAG, "putString blocked for $key, trying direct ContentResolver")
             try {
                 writeSettingDirect(Settings.System.CONTENT_URI, key, value)
-                Log.d(TAG, "Wrote system setting via ContentResolver: $key = $value")
-                promise.resolve(true)
+                val readBack = Settings.System.getString(reactContext.contentResolver, key)
+                if (readBack == value) {
+                    Log.d(TAG, "Wrote system setting via ContentResolver: $key = $value")
+                    promise.resolve(true)
+                } else {
+                    Log.w(TAG, "System setting $key is OS-restricted")
+                    promise.resolve(false)
+                }
             } catch (e2: Exception) {
                 Log.e(TAG, "Direct write also failed for $key: ${e2.message}")
-                promise.reject("WRITE_ERROR", "Failed to write system setting $key: ${e2.message}", e2)
+                promise.resolve(false)
             }
         } catch (e: Exception) {
             Log.e(TAG, "writeSystemSetting failed: ${e.message}")
-            promise.reject("WRITE_ERROR", "Failed to write system setting $key: ${e.message}", e)
+            promise.resolve(false)
         }
     }
 
@@ -359,13 +382,21 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
     fun writeSecureSetting(key: String, value: String, promise: Promise) {
         try {
             Settings.Secure.putString(reactContext.contentResolver, key, value)
-            Log.d(TAG, "Wrote secure setting: $key = $value")
-            promise.resolve(true)
+            // Verify write persisted
+            val readBack = Settings.Secure.getString(reactContext.contentResolver, key)
+            if (readBack == value) {
+                Log.d(TAG, "Wrote secure setting: $key = $value")
+                promise.resolve(true)
+            } else {
+                Log.w(TAG, "Secure setting $key write didn't persist (got $readBack, wanted $value)")
+                promise.resolve(false)
+            }
         } catch (e: SecurityException) {
-            promise.reject("NO_PERMISSION", "WRITE_SECURE_SETTINGS not granted. Use the desktop companion to unlock.")
+            Log.w(TAG, "Secure setting $key: no permission")
+            promise.resolve(false)
         } catch (e: Exception) {
             Log.e(TAG, "writeSecureSetting failed: ${e.message}")
-            promise.reject("WRITE_ERROR", "Failed to write secure setting $key: ${e.message}", e)
+            promise.resolve(false)
         }
     }
 
@@ -377,13 +408,21 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
     fun writeGlobalSetting(key: String, value: String, promise: Promise) {
         try {
             Settings.Global.putString(reactContext.contentResolver, key, value)
-            Log.d(TAG, "Wrote global setting: $key = $value")
-            promise.resolve(true)
+            // Verify write persisted
+            val readBack = Settings.Global.getString(reactContext.contentResolver, key)
+            if (readBack == value) {
+                Log.d(TAG, "Wrote global setting: $key = $value")
+                promise.resolve(true)
+            } else {
+                Log.w(TAG, "Global setting $key write didn't persist (got $readBack, wanted $value)")
+                promise.resolve(false)
+            }
         } catch (e: SecurityException) {
-            promise.reject("NO_PERMISSION", "WRITE_SECURE_SETTINGS not granted. Use the desktop companion to unlock.")
+            Log.w(TAG, "Global setting $key: no permission")
+            promise.resolve(false)
         } catch (e: Exception) {
             Log.e(TAG, "writeGlobalSetting failed: ${e.message}")
-            promise.reject("WRITE_ERROR", "Failed to write global setting $key: ${e.message}", e)
+            promise.resolve(false)
         }
     }
 

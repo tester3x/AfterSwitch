@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SectionCard } from '../components/SectionCard';
@@ -18,10 +18,12 @@ type Props = {
 };
 
 export function CompareScreen({ currentProfile, importedProfile, comparison, onSelectCloudProfile, onClearProfile }: Props) {
+  // All groups start collapsed. Persisted so state survives tab switches (component unmounts).
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [loaded, setLoaded] = useState(false);
+  const prevModelRef = useRef<string | null>(null);
 
-  // Load persisted collapsed state
+  // Load persisted state on mount
   useEffect(() => {
     AsyncStorage.getItem(COLLAPSED_KEY)
       .then((val) => {
@@ -31,10 +33,19 @@ export function CompareScreen({ currentProfile, importedProfile, comparison, onS
       .catch(() => setLoaded(true));
   }, []);
 
-  // Persist expanded state on change (default = collapsed, so we track which are expanded)
+  // Reset to all-collapsed when a DIFFERENT profile is loaded
+  const currentModel = importedProfile?.device.model ?? null;
+  if (currentModel !== prevModelRef.current) {
+    const hadPreviousProfile = prevModelRef.current !== null;
+    prevModelRef.current = currentModel;
+    if (hadPreviousProfile && currentModel !== null) {
+      setCollapsedGroups({});
+      AsyncStorage.setItem(COLLAPSED_KEY, JSON.stringify({})).catch(() => {});
+    }
+  }
+
   const toggleGroup = useCallback((group: string) => {
     setCollapsedGroups((prev) => {
-      // Default is collapsed (true). Toggle: if collapsed (true or undefined) → expand (false), if expanded (false) → collapse (true)
       const isCurrentlyCollapsed = prev[group] !== false;
       const next = { ...prev, [group]: isCurrentlyCollapsed ? false : true };
       AsyncStorage.setItem(COLLAPSED_KEY, JSON.stringify(next)).catch(() => {});
@@ -66,7 +77,7 @@ export function CompareScreen({ currentProfile, importedProfile, comparison, onS
       <SectionCard title="Comparison Summary">
         <View style={styles.deviceRow}>
           <Text style={styles.deviceCompare}>
-            {importedProfile.device.nickname} → {currentProfile?.device.nickname || 'This Phone'}
+            {currentProfile?.device.nickname || 'This Phone'} → {importedProfile.device.nickname}
           </Text>
           <Pressable onPress={onClearProfile} style={styles.changeBtn}>
             <Text style={styles.changeBtnText}>Change</Text>

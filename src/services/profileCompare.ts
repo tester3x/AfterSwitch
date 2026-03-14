@@ -52,9 +52,14 @@ export function compareProfiles(
 ): ComparisonResult {
   const settingDiffs: SettingDiff[] = [];
 
+  // Detect if target device is Samsung — skip Samsung-only settings if not
+  const targetIsSamsung = currentProfile.device.manufacturer?.toLowerCase().includes('samsung') ?? false;
+
   // Compare each settings namespace
   const namespaces = ['system', 'secure', 'global', 'samsung'] as const;
   for (const ns of namespaces) {
+    // Skip entire samsung namespace when target isn't Samsung
+    if (ns === 'samsung' && !targetIsSamsung) continue;
     const oldSettings = importedProfile.settings[ns] || {};
     const newSettings = currentProfile.settings[ns] || {};
 
@@ -79,6 +84,9 @@ export function compareProfiles(
 
       const fullKey = `${ns}.${key}`;
       const meta = getSettingMeta(fullKey);
+
+      // Skip samsungOnly settings when target isn't Samsung
+      if (meta.samsungOnly && !targetIsSamsung) continue;
 
       settingDiffs.push({
         key: fullKey,

@@ -1,5 +1,5 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { AppState, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SectionCard } from '../components/SectionCard';
 import { CloudProfileList } from '../components/CloudProfileList';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -48,6 +48,19 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
       setHasWriteSettings(await canWriteSettings());
       setHasSecureSettings(await canWriteSecureSettings());
     })();
+  }, []);
+
+  // Re-check permissions when user returns from Settings app
+  const appState = useRef(AppState.currentState);
+  React.useEffect(() => {
+    const sub = AppState.addEventListener('change', async (nextState) => {
+      if (appState.current.match(/inactive|background/) && nextState === 'active') {
+        setHasWriteSettings(await canWriteSettings());
+        setHasSecureSettings(await canWriteSecureSettings());
+      }
+      appState.current = nextState;
+    });
+    return () => sub.remove();
   }, []);
 
   React.useEffect(() => {
@@ -132,12 +145,21 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
     if (!comparison || restoring) return;
     setRestoring(true);
 
-    // Restore auto settings
+    // Only restore settings we have permission to write
+    const canWrite = (d: SettingDiff) => {
+      if (d.category === 'system' && !hasWriteSettings) return false;
+      if (d.category === 'secure' && !hasSecureSettings) return false;
+      if (d.category === 'global' && !hasSecureSettings) return false;
+      if (d.category === 'samsung' && !hasWriteSettings && !hasSecureSettings) return false;
+      return true;
+    };
+
     const autoToRestore = comparison.settings.filter(
       (d) =>
         d.restoreType === 'auto' &&
         checkedSettings[d.key] &&
-        restoreStatuses[d.key] !== 'success'
+        restoreStatuses[d.key] !== 'success' &&
+        canWrite(d)
     );
 
     // Also restore secure settings if we have permission
@@ -156,7 +178,7 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
     }
 
     setRestoring(false);
-  }, [comparison, checkedSettings, restoreStatuses, hasSecureSettings, handleRestoreSetting, restoring]);
+  }, [comparison, checkedSettings, restoreStatuses, hasWriteSettings, hasSecureSettings, handleRestoreSetting, restoring]);
 
   const handleOpenSettings = useCallback(async (intent: string) => {
     await openSettingsScreen(intent);
@@ -195,11 +217,24 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
   }
 
   // Split diffs by restore capability — filter junk settings that users can't find
-  const autoDiffs = comparison.settings.filter((d) => d.restoreType === 'auto' && !isJunkSetting(d.key));
+  const allAutoDiffs = comparison.settings.filter((d) => d.restoreType === 'auto' && !isJunkSetting(d.key));
   const guidedDiffs = comparison.settings.filter((d) => d.restoreType === 'guided' && !isJunkSetting(d.key));
   const secureAutoDiffs = hasSecureSettings
     ? guidedDiffs.filter((d) => d.category !== 'defaults')
     : [];
+
+  // Only include auto settings we actually have permission to write
+  const autoDiffs = allAutoDiffs.filter((d) => {
+    if (d.category === 'system' && hasWriteSettings === false) return false;
+    if (d.category === 'secure' && !hasSecureSettings) return false;
+    if (d.category === 'global' && !hasSecureSettings) return false;
+    if (d.category === 'samsung' && hasWriteSettings === false && !hasSecureSettings) return false;
+    return true;
+  });
+
+  // Settings blocked by missing permissions (shown separately with expandable list)
+  const blockedDiffs = allAutoDiffs.filter((d) => !autoDiffs.includes(d));
+  const blockedByPermission = blockedDiffs.length;
 
   // All restorable diffs (auto + unlocked secure)
   const allRestorableDiffs = [...autoDiffs, ...secureAutoDiffs];
@@ -252,7 +287,7 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
           {isCrossDevice && (
             <View style={styles.warningBox}>
               <Text style={styles.warningText}>
-                These devices are different models ({importedProfile.device.model} → {currentProfile?.device.model}). Some settings may not apply or behave differently on this device.
+                Different device models ({importedProfile.device.model} → {currentProfile?.device.model}). Incompatible settings have been filtered out. Some remaining settings may behave differently.
               </Text>
             </View>
           )}
@@ -270,9 +305,10 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
           </View>
         )}
         {successCount > 0 && (
-          <Text style={styles.successBanner}>
-            {successCount} setting{successCount !== 1 ? 's' : ''} restored
-          </Text>
+          <RestoredList
+            diffs={comparison.settings}
+            restoreStatuses={restoreStatuses}
+          />
         )}
         {pendingRestorableCount > 0 && (
           <PrimaryButton
@@ -298,13 +334,13 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
         )}
       </SectionCard>
 
-      {/* Permission prompt */}
-      {hasWriteSettings === false && autoDiffs.length > 0 && (
+      {/* Permission prompt — show when settings are blocked */}
+      {hasWriteSettings === false && blockedByPermission > 0 && (
         <SectionCard title="Permission Needed">
           <Text style={styles.permissionText}>
-            AfterSwitch needs the "Modify System Settings" permission to auto-restore
-            display, sound, and other system settings.
+            {blockedByPermission} setting{blockedByPermission !== 1 ? 's' : ''} can't be restored without the "Modify System Settings" permission.
           </Text>
+          <BlockedList diffs={blockedDiffs} />
           <PrimaryButton label="Grant Permission" onPress={handleRequestWritePermission} />
         </SectionCard>
       )}
@@ -440,6 +476,64 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
         </CollapsibleSectionCard>
       )}
     </>
+  );
+}
+
+// ==================== Restored List ====================
+
+function RestoredList({
+  diffs,
+  restoreStatuses,
+}: {
+  diffs: SettingDiff[];
+  restoreStatuses: Record<string, RestoreStatus>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const restored = diffs.filter((d) => restoreStatuses[d.key] === 'success');
+  if (restored.length === 0) return null;
+
+  return (
+    <View style={{ marginBottom: 8 }}>
+      <Pressable onPress={() => setExpanded(!expanded)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Text style={styles.successBanner}>
+          {restored.length} setting{restored.length !== 1 ? 's' : ''} restored
+        </Text>
+        <Text style={{ color: '#4ade80', fontSize: 12 }}>{expanded ? '▾' : '▸'}</Text>
+      </Pressable>
+      {expanded && (
+        <View style={{ gap: 2, marginTop: 4 }}>
+          {restored.map((d) => (
+            <Text key={d.key} style={{ color: '#4ade80', fontSize: 12, paddingLeft: 8 }}>
+              {d.label}
+            </Text>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function BlockedList({ diffs }: { diffs: SettingDiff[] }) {
+  const [expanded, setExpanded] = useState(false);
+  if (diffs.length === 0) return null;
+
+  return (
+    <View style={{ marginBottom: 8 }}>
+      <Pressable onPress={() => setExpanded(!expanded)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Text style={{ color: '#e6b800', fontSize: 12, fontWeight: '600' }}>
+          See what's waiting {expanded ? '▾' : '▸'}
+        </Text>
+      </Pressable>
+      {expanded && (
+        <View style={{ gap: 2, marginTop: 4 }}>
+          {diffs.map((d) => (
+            <Text key={d.key} style={{ color: '#e6b800', fontSize: 12, paddingLeft: 8 }}>
+              {d.label}
+            </Text>
+          ))}
+        </View>
+      )}
+    </View>
   );
 }
 
