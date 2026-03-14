@@ -35,13 +35,14 @@ const COLLECTION = 'afterswitch_profiles';
 
 /**
  * Save a profile to the cloud under the current user's account.
- * Profile ID is based on device model + timestamp for uniqueness.
+ * One profile per device model — re-saving the same device overwrites.
+ * Old timestamp-based duplicates are cleaned up automatically.
  */
 export async function saveProfileToCloud(profile: DeviceProfile): Promise<string> {
   const user = ensureAuth();
 
   const safeModel = profile.device.model.replace(/[^a-zA-Z0-9-_]/g, '-');
-  const profileId = `${safeModel}-${Date.now()}`;
+  const profileId = safeModel; // stable ID per device model
 
   const docRef = doc(db, COLLECTION, user.uid, 'profiles', profileId);
 
@@ -59,6 +60,14 @@ export async function saveProfileToCloud(profile: DeviceProfile): Promise<string
     savedAt: serverTimestamp(),
     schemaVersion: profile.schemaVersion,
   });
+
+  // Clean up old timestamp-based duplicates for this model
+  const profilesRef = collection(db, COLLECTION, user.uid, 'profiles');
+  const snapshot = await getDocs(profilesRef);
+  const dupes = snapshot.docs.filter(
+    (d) => d.id !== profileId && d.id.startsWith(`${safeModel}-`)
+  );
+  await Promise.all(dupes.map((d) => deleteDoc(d.ref)));
 
   return profileId;
 }
