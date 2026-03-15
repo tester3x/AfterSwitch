@@ -25,10 +25,20 @@ export type SettingToWrite = {
   value: string;
 };
 
+/**
+ * Rich write result from the companion.
+ * - success: value written and verified via read-back
+ * - not_applicable: key doesn't exist on this device (cross-device restore)
+ * - overridden: key exists but system enforces a different value
+ * - error: write threw an exception
+ */
+export type WriteResultStatus = 'success' | 'not_applicable' | 'overridden' | 'error';
+
 export type WriteResult = {
   namespace: string;
   key: string;
   success: boolean;
+  status: WriteResultStatus;
   error?: string;
 };
 
@@ -36,6 +46,7 @@ export type BulkWriteResult = {
   results: WriteResult[];
   successCount: number;
   failedCount: number;
+  notApplicableCount: number;
 };
 
 /**
@@ -99,10 +110,12 @@ export async function writeSettingsViaCompanion(
         namespace: s.namespace,
         key: s.key,
         success: false,
+        status: 'error' as WriteResultStatus,
         error: err.message || 'Bridge connection failed',
       })),
       successCount: 0,
       failedCount: settings.length,
+      notApplicableCount: 0,
     };
   }
 }
@@ -114,7 +127,7 @@ export async function writeSettingViaCompanion(
   namespace: string,
   key: string,
   value: string
-): Promise<boolean> {
+): Promise<{ success: boolean; status: WriteResultStatus }> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
@@ -127,11 +140,11 @@ export async function writeSettingViaCompanion(
     });
     clearTimeout(timeout);
 
-    if (!response.ok) return false;
+    if (!response.ok) return { success: false, status: 'error' };
 
     const data = await response.json();
-    return data.success === true;
+    return { success: data.success === true, status: data.status || 'error' };
   } catch {
-    return false;
+    return { success: false, status: 'error' };
   }
 }

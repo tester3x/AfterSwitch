@@ -21,6 +21,7 @@ import {
   writeSettingsViaCompanion,
   type CompanionStatus,
   type SettingToWrite,
+  type WriteResultStatus,
 } from '../services/companionBridge';
 
 type Props = {
@@ -31,7 +32,7 @@ type Props = {
   onClearProfile: () => void;
 };
 
-type RestoreStatus = 'pending' | 'restoring' | 'success' | 'failed';
+type RestoreStatus = 'pending' | 'restoring' | 'success' | 'failed' | 'not_applicable' | 'overridden';
 
 // Persists collapse state across tab switches (component unmounts/remounts)
 // null = cold open (use collapsed defaults), otherwise use last known state
@@ -214,12 +215,20 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
 
       const result = await writeSettingsViaCompanion(settingsToWrite);
 
-      // Map results back to diff keys
+      // Map results back to diff keys with rich status
       const resultStatuses: Record<string, RestoreStatus> = {};
       for (let i = 0; i < allToRestore.length; i++) {
         const diff = allToRestore[i];
         const writeResult = result.results[i];
-        resultStatuses[diff.key] = writeResult?.success ? 'success' : 'failed';
+        if (writeResult?.success) {
+          resultStatuses[diff.key] = 'success';
+        } else if (writeResult?.status === 'not_applicable') {
+          resultStatuses[diff.key] = 'not_applicable';
+        } else if (writeResult?.status === 'overridden') {
+          resultStatuses[diff.key] = 'overridden';
+        } else {
+          resultStatuses[diff.key] = 'failed';
+        }
       }
       setRestoreStatuses((prev) => ({ ...prev, ...resultStatuses }));
     } else {
@@ -295,15 +304,17 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
   const blockedDiffs = companion.available ? [] : allAutoDiffs.filter((d) => !autoDiffs.includes(d));
   const blockedByPermission = blockedDiffs.length;
 
-  // Count stats — filter out already-attempted items (success OR failed)
+  // Count stats — filter out already-attempted items (any terminal status)
+  const isTerminal = (s: RestoreStatus) => s === 'success' || s === 'failed' || s === 'not_applicable' || s === 'overridden';
   const successCount = Object.values(restoreStatuses).filter((s) => s === 'success').length;
-  const failedCount = Object.values(restoreStatuses).filter((s) => s === 'failed').length;
+  const failedCount = Object.values(restoreStatuses).filter((s) => s === 'failed' || s === 'overridden').length;
+  const notApplicableCount = Object.values(restoreStatuses).filter((s) => s === 'not_applicable').length;
   const pendingRestorableCount = allRestorableDiffs.filter(
-    (d) => checkedSettings[d.key] && restoreStatuses[d.key] !== 'success' && restoreStatuses[d.key] !== 'failed'
+    (d) => checkedSettings[d.key] && !isTerminal(restoreStatuses[d.key])
   ).length;
 
-  // Group auto diffs by SettingGroup, excluding already-attempted (success OR failed)
-  const isAttempted = (d: SettingDiff) => restoreStatuses[d.key] === 'success' || restoreStatuses[d.key] === 'failed';
+  // Group auto diffs by SettingGroup, excluding already-attempted (any terminal status)
+  const isAttempted = (d: SettingDiff) => isTerminal(restoreStatuses[d.key]);
   const autoGrouped = groupDiffsByGroup(
     autoDiffs.filter((d) => !isAttempted(d))
   );
@@ -368,6 +379,12 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
             restoreStatuses={restoreStatuses}
           />
         )}
+        {notApplicableCount > 0 && (
+          <SkippedList
+            diffs={comparison.settings}
+            restoreStatuses={restoreStatuses}
+          />
+        )}
         {failedCount > 0 && (
           <FailedList
             diffs={comparison.settings}
@@ -399,10 +416,10 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
             onPress={handleRestoreAll}
           />
         )}
-        {pendingRestorableCount === 0 && (successCount > 0 || failedCount > 0) && (
+        {pendingRestorableCount === 0 && (successCount > 0 || failedCount > 0 || notApplicableCount > 0) && (
           <Text style={styles.allDoneBanner}>
-            {failedCount > 0 && successCount > 0
-              ? `Done! ${successCount} restored, ${failedCount} couldn't be changed.`
+            {successCount > 0 && (failedCount > 0 || notApplicableCount > 0)
+              ? `Done! ${successCount} restored${notApplicableCount > 0 ? `, ${notApplicableCount} skipped` : ''}${failedCount > 0 ? `, ${failedCount} couldn't be changed` : ''}.`
               : failedCount > 0
               ? `${failedCount} settings couldn't be changed on this device.`
               : 'All checked settings restored!'}
@@ -607,6 +624,43 @@ function RestoredList({
   );
 }
 
+function SkippedList({
+  diffs,
+  restoreStatuses,
+}: {
+  diffs: SettingDiff[];
+  restoreStatuses: Record<string, RestoreStatus>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const skipped = diffs.filter((d) => restoreStatuses[d.key] === 'not_applicable');
+  if (skipped.length === 0) return null;
+
+  return (
+    <View style={{ marginBottom: 8 }}>
+      <Pressable onPress={() => setExpanded(!expanded)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Text style={{ color: '#6b7fa0', fontSize: 14, fontWeight: '600', marginBottom: 4 }}>
+          {skipped.length} not on this device
+        </Text>
+        <Text style={{ color: '#6b7fa0', fontSize: 12, marginBottom: 4 }}>{expanded ? '▾' : '▸'}</Text>
+      </Pressable>
+      {!expanded && (
+        <Text style={{ color: '#4a5568', fontSize: 11, marginTop: -2 }}>
+          These settings don't exist on your phone — normal for different models.
+        </Text>
+      )}
+      {expanded && (
+        <View style={{ gap: 2, marginTop: 4 }}>
+          {skipped.map((d) => (
+            <Text key={d.key} style={{ color: '#6b7fa0', fontSize: 12, paddingLeft: 8 }}>
+              {d.label}
+            </Text>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 function FailedList({
   diffs,
   restoreStatuses,
@@ -617,7 +671,7 @@ function FailedList({
   hasSecureSettings: boolean | null;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const failed = diffs.filter((d) => restoreStatuses[d.key] === 'failed');
+  const failed = diffs.filter((d) => restoreStatuses[d.key] === 'failed' || restoreStatuses[d.key] === 'overridden');
   if (failed.length === 0) return null;
 
   return (
