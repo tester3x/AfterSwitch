@@ -123,6 +123,25 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
     }, 2000);
   }, []);
 
+  // Compute restorable diffs early (before callbacks that need it)
+  const allRestorableDiffs = useMemo(() => {
+    if (!comparison) return [];
+    const allAutoDiffs = comparison.settings.filter((d) => d.restoreType === 'auto' && !isJunkSetting(d.key));
+    const guidedDiffs = comparison.settings.filter((d) => d.restoreType === 'guided' && !isJunkSetting(d.key));
+    const secureAutoDiffs = (companion.available || hasSecureSettings)
+      ? guidedDiffs.filter((d) => d.category !== 'defaults')
+      : [];
+    const autoDiffs = companion.available
+      ? allAutoDiffs
+      : allAutoDiffs.filter((d) => {
+          if (d.category === 'system' && hasWriteSettings === false) return false;
+          if (d.category === 'secure' && !hasSecureSettings) return false;
+          if (d.category === 'global' && !hasSecureSettings) return false;
+          return true;
+        });
+    return [...autoDiffs, ...secureAutoDiffs];
+  }, [comparison, companion.available, hasWriteSettings, hasSecureSettings]);
+
   const handleRestoreSettingLocal = useCallback(async (diff: SettingDiff): Promise<boolean> => {
     const [category, ...keyParts] = diff.key.split('.');
     const rawKey = keyParts.join('.');
@@ -164,11 +183,10 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
     if (!comparison || restoring) return;
     setRestoring(true);
 
-    // Gather ALL checked settings that haven't been attempted yet
-    // (not just ones we have local permission for)
-    const allToRestore = comparison.settings.filter(
+    // Only restore settings that match the displayed count (allRestorableDiffs)
+    // This excludes junk settings and respects the same filters as the UI
+    const allToRestore = allRestorableDiffs.filter(
       (d) =>
-        d.category !== 'defaults' &&
         checkedSettings[d.key] &&
         restoreStatuses[d.key] !== 'success' &&
         restoreStatuses[d.key] !== 'failed'
@@ -222,7 +240,7 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
     }
 
     setRestoring(false);
-  }, [comparison, checkedSettings, restoreStatuses, hasWriteSettings, hasSecureSettings, handleRestoreSetting, restoring, companion]);
+  }, [comparison, allRestorableDiffs, checkedSettings, restoreStatuses, hasWriteSettings, hasSecureSettings, handleRestoreSetting, restoring, companion]);
 
   const handleOpenSettings = useCallback(async (intent: string) => {
     await openSettingsScreen(intent);
@@ -260,17 +278,12 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
     );
   }
 
-  // Split diffs by restore capability — filter junk settings that users can't find
+  // Derive display groups from the memoized allRestorableDiffs
   const allAutoDiffs = comparison.settings.filter((d) => d.restoreType === 'auto' && !isJunkSetting(d.key));
   const guidedDiffs = comparison.settings.filter((d) => d.restoreType === 'guided' && !isJunkSetting(d.key));
-
-  // When companion is connected, ALL non-defaults settings are auto-restorable via ADB
   const secureAutoDiffs = (companion.available || hasSecureSettings)
     ? guidedDiffs.filter((d) => d.category !== 'defaults')
     : [];
-
-  // Only include auto settings we actually have permission to write
-  // (companion bypasses all permission checks — shell privilege)
   const autoDiffs = companion.available
     ? allAutoDiffs
     : allAutoDiffs.filter((d) => {
@@ -279,14 +292,8 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
         if (d.category === 'global' && !hasSecureSettings) return false;
         return true;
       });
-
-  // Settings blocked by missing permissions (shown separately with expandable list)
-  // When companion is connected, nothing is blocked
   const blockedDiffs = companion.available ? [] : allAutoDiffs.filter((d) => !autoDiffs.includes(d));
   const blockedByPermission = blockedDiffs.length;
-
-  // All restorable diffs (auto + unlocked secure)
-  const allRestorableDiffs = [...autoDiffs, ...secureAutoDiffs];
 
   // Count stats — filter out already-attempted items (success OR failed)
   const successCount = Object.values(restoreStatuses).filter((s) => s === 'success').length;
