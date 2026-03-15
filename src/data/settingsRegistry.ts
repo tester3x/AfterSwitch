@@ -912,6 +912,25 @@ const JUNK_KEY_PATTERNS: string[] = [
   'surface_composition', // Display compositor (internal)
   'peak_refresh_rate',  // Handled by display settings (auto-managed)
   'min_refresh_rate',   // Handled by display settings (auto-managed)
+  // Runtime state — not user preferences
+  'timestamp',          // Literal timestamp value (changes every moment)
+  'aicore_model_load',  // Samsung AI core timing data (changes at runtime)
+  'is_llm_running',     // Samsung LLM runtime state
+  'smart_switch_complete', // Carrier setup completion flag (Verizon/Samsung)
+  'favorite_list_changed', // Runtime state flag
+  // Hearing aid hardware calibration (device-paired, not transferable)
+  'hearing_musiccheck', // Hearing aid calibration
+  'hearing_videocheck', // Hearing aid calibration
+  'hearing_parameters', // Hearing aid calibration
+  'hearing_direction',  // Hearing aid calibration
+  'hearing_revision',   // Hearing aid calibration
+  'hearing_diagnosis',  // Hearing aid calibration
+  // Bluetooth codec volumes (hardware-specific, not transferable)
+  'volume_notification_bt_sco', // BT SCO headset volume
+  'volume_voice_bt_sco', // BT SCO voice volume
+  'volume_music_hearing_aid', // Hearing aid output volume
+  'volume_voice_bt_a2dp', // BT A2DP voice volume
+  'enable_mtp_settings', // USB MTP internal state
 ];
 
 /**
