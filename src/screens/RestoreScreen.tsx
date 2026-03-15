@@ -402,11 +402,11 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
             </Text>
           </View>
         )}
-        {!companion.available && !hasSecureSettings && pendingRestorableCount > 0 && failedCount === 0 && (
+        {!companion.available && pendingRestorableCount > 0 && failedCount === 0 && (
           <View style={styles.companionBox}>
-            <Text style={styles.companionTitle}>Companion App Recommended</Text>
+            <Text style={styles.companionTitle}>Connect Companion for Best Results</Text>
             <Text style={styles.companionText}>
-              Most settings need deeper access that Android restricts. Without the companion app, only a few basic settings can be restored. Connect via USB to unlock everything.
+              Android restricts which settings apps can change directly. Connect via USB with the desktop companion to restore everything.
             </Text>
           </View>
         )}
@@ -417,13 +417,33 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
           />
         )}
         {pendingRestorableCount === 0 && (successCount > 0 || failedCount > 0 || notApplicableCount > 0) && (
-          <Text style={styles.allDoneBanner}>
-            {successCount > 0 && (failedCount > 0 || notApplicableCount > 0)
-              ? `Done! ${successCount} restored${notApplicableCount > 0 ? `, ${notApplicableCount} skipped` : ''}${failedCount > 0 ? `, ${failedCount} couldn't be changed` : ''}.`
-              : failedCount > 0
-              ? `${failedCount} settings couldn't be changed on this device.`
-              : 'All checked settings restored!'}
-          </Text>
+          <>
+            <Text style={styles.allDoneBanner}>
+              {successCount > 0 && (failedCount > 0 || notApplicableCount > 0)
+                ? `Done! ${successCount} restored${notApplicableCount > 0 ? `, ${notApplicableCount} skipped` : ''}${failedCount > 0 ? `, ${failedCount} couldn't be changed` : ''}.`
+                : failedCount > 0
+                ? `${failedCount} settings couldn't be changed on this device.`
+                : 'All checked settings restored!'}
+            </Text>
+            <View style={styles.legendRow}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#4ade80' }]} />
+                <Text style={styles.legendLabel}>Restored</Text>
+              </View>
+              {notApplicableCount > 0 && (
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: '#6b7280' }]} />
+                  <Text style={styles.legendLabel}>Not on this device</Text>
+                </View>
+              )}
+              {failedCount > 0 && (
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: '#f87171' }]} />
+                  <Text style={styles.legendLabel}>System blocked</Text>
+                </View>
+              )}
+            </View>
+          </>
         )}
         {remainingGuidedCount > 0 && (
           <View style={styles.manualBox}>
@@ -1050,6 +1070,26 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
     paddingVertical: 8,
+  },
+  legendRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 16,
+    marginBottom: 12,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  legendLabel: {
+    color: '#8090b0',
+    fontSize: 12,
   },
   companionBox: {
     backgroundColor: '#1a1a2e',
