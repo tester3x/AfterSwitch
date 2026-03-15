@@ -16,6 +16,12 @@ import {
   writeGlobalSetting,
   openSettingsScreen,
 } from '../services/settingsReader';
+import {
+  isCompanionAvailable,
+  writeSettingsViaCompanion,
+  type CompanionStatus,
+  type SettingToWrite,
+} from '../services/companionBridge';
 
 type Props = {
   comparison: ComparisonResult | null;
@@ -44,6 +50,7 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
   const [restoring, setRestoring] = useState(false);
   const [wizardActive, setWizardActive] = useState(false);
   const [appsShown, setAppsShown] = useState(20);
+  const [companion, setCompanion] = useState<CompanionStatus>({ available: false });
 
   // Sync collapse state to module-level var so it survives tab switches
   React.useEffect(() => { savedCollapseState = sectionCollapsed; }, [sectionCollapsed]);
@@ -56,16 +63,21 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
     (async () => {
       setHasWriteSettings(await canWriteSettings());
       setHasSecureSettings(await canWriteSecureSettings());
+      // Check if companion bridge is available (USB connected + companion running)
+      const status = await isCompanionAvailable();
+      setCompanion(status);
     })();
   }, []);
 
-  // Re-check permissions when user returns from Settings app
+  // Re-check permissions and companion when user returns from Settings app
   const appState = useRef(AppState.currentState);
   React.useEffect(() => {
     const sub = AppState.addEventListener('change', async (nextState) => {
       if (appState.current.match(/inactive|background/) && nextState === 'active') {
         setHasWriteSettings(await canWriteSettings());
         setHasSecureSettings(await canWriteSecureSettings());
+        const status = await isCompanionAvailable();
+        setCompanion(status);
       }
       appState.current = nextState;
     });
@@ -111,42 +123,34 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
     }, 2000);
   }, []);
 
+  const handleRestoreSettingLocal = useCallback(async (diff: SettingDiff): Promise<boolean> => {
+    const [category, ...keyParts] = diff.key.split('.');
+    const rawKey = keyParts.join('.');
+    const writeValue = diff.rawOldValue || diff.oldValue;
+    let success = false;
+
+    if (category === 'system') {
+      success = await writeSystemSetting(rawKey, writeValue);
+      if (!success && hasSecureSettings) {
+        success = await writeSecureSetting(rawKey, writeValue);
+        if (!success) {
+          success = await writeGlobalSetting(rawKey, writeValue);
+        }
+      }
+    } else if (category === 'secure') {
+      success = await writeSecureSetting(rawKey, writeValue);
+    } else if (category === 'global') {
+      success = await writeGlobalSetting(rawKey, writeValue);
+    }
+
+    return success;
+  }, [hasSecureSettings]);
+
   const handleRestoreSetting = useCallback(async (diff: SettingDiff) => {
     setRestoreStatuses((prev) => ({ ...prev, [diff.key]: 'restoring' }));
 
     try {
-      const [category, ...keyParts] = diff.key.split('.');
-      const rawKey = keyParts.join('.');
-      // Always write the raw value, not the formatted display value
-      const writeValue = diff.rawOldValue || diff.oldValue;
-      let success = false;
-
-      if (category === 'system') {
-        success = await writeSystemSetting(rawKey, writeValue);
-        // If system whitelist blocked it and we have WRITE_SECURE_SETTINGS,
-        // try secure/global providers (Samsung settings cross namespaces)
-        if (!success && hasSecureSettings) {
-          success = await writeSecureSetting(rawKey, writeValue);
-          if (!success) {
-            success = await writeGlobalSetting(rawKey, writeValue);
-          }
-        }
-      } else if (category === 'secure') {
-        success = await writeSecureSetting(rawKey, writeValue);
-      } else if (category === 'global') {
-        success = await writeGlobalSetting(rawKey, writeValue);
-      } else if (category === 'samsung') {
-        // Samsung settings exist across all three providers — try system first,
-        // then secure (with WRITE_SECURE_SETTINGS), then global
-        success = await writeSystemSetting(rawKey, writeValue);
-        if (!success) {
-          success = await writeSecureSetting(rawKey, writeValue);
-          if (!success) {
-            success = await writeGlobalSetting(rawKey, writeValue);
-          }
-        }
-      }
-
+      const success = await handleRestoreSettingLocal(diff);
       setRestoreStatuses((prev) => ({
         ...prev,
         [diff.key]: success ? 'success' : 'failed',
@@ -154,48 +158,71 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
     } catch {
       setRestoreStatuses((prev) => ({ ...prev, [diff.key]: 'failed' }));
     }
-  }, [hasSecureSettings]);
+  }, [handleRestoreSettingLocal]);
 
   const handleRestoreAll = useCallback(async () => {
     if (!comparison || restoring) return;
     setRestoring(true);
 
-    // Only restore settings we have permission to write
-    const canWrite = (d: SettingDiff) => {
-      if (d.category === 'system' && !hasWriteSettings) return false;
-      if (d.category === 'secure' && !hasSecureSettings) return false;
-      if (d.category === 'global' && !hasSecureSettings) return false;
-      if (d.category === 'samsung' && !hasWriteSettings && !hasSecureSettings) return false;
-      return true;
-    };
-
-    const autoToRestore = comparison.settings.filter(
+    // Gather ALL checked settings that haven't been attempted yet
+    // (not just ones we have local permission for)
+    const allToRestore = comparison.settings.filter(
       (d) =>
-        d.restoreType === 'auto' &&
+        d.category !== 'defaults' &&
         checkedSettings[d.key] &&
         restoreStatuses[d.key] !== 'success' &&
-        restoreStatuses[d.key] !== 'failed' &&
-        canWrite(d)
+        restoreStatuses[d.key] !== 'failed'
     );
 
-    // Also restore secure settings if we have permission
-    const secureToRestore = hasSecureSettings
-      ? comparison.settings.filter(
-          (d) =>
-            d.restoreType === 'guided' &&
-            d.category !== 'defaults' &&
-            checkedSettings[d.key] &&
-            restoreStatuses[d.key] !== 'success' &&
-            restoreStatuses[d.key] !== 'failed'
-        )
-      : [];
+    if (companion.available && allToRestore.length > 0) {
+      // ====== COMPANION PATH ======
+      // Send ALL settings to companion for ADB shell writes (shell privilege)
+      // Mark all as restoring
+      const newStatuses: Record<string, RestoreStatus> = {};
+      for (const d of allToRestore) {
+        newStatuses[d.key] = 'restoring';
+      }
+      setRestoreStatuses((prev) => ({ ...prev, ...newStatuses }));
 
-    for (const diff of [...autoToRestore, ...secureToRestore]) {
-      await handleRestoreSetting(diff);
+      // Build the write list
+      const settingsToWrite: SettingToWrite[] = allToRestore.map((d) => {
+        const [category, ...keyParts] = d.key.split('.');
+        return {
+          namespace: category,
+          key: keyParts.join('.'),
+          value: d.rawOldValue || d.oldValue,
+        };
+      });
+
+      const result = await writeSettingsViaCompanion(settingsToWrite);
+
+      // Map results back to diff keys
+      const resultStatuses: Record<string, RestoreStatus> = {};
+      for (let i = 0; i < allToRestore.length; i++) {
+        const diff = allToRestore[i];
+        const writeResult = result.results[i];
+        resultStatuses[diff.key] = writeResult?.success ? 'success' : 'failed';
+      }
+      setRestoreStatuses((prev) => ({ ...prev, ...resultStatuses }));
+    } else {
+      // ====== LOCAL PATH (no companion) ======
+      // Only restore settings we have local permission to write
+      const canWrite = (d: SettingDiff) => {
+        if (d.category === 'system' && !hasWriteSettings) return false;
+        if (d.category === 'secure' && !hasSecureSettings) return false;
+        if (d.category === 'global' && !hasSecureSettings) return false;
+        return true;
+      };
+
+      const localToRestore = allToRestore.filter(canWrite);
+
+      for (const diff of localToRestore) {
+        await handleRestoreSetting(diff);
+      }
     }
 
     setRestoring(false);
-  }, [comparison, checkedSettings, restoreStatuses, hasWriteSettings, hasSecureSettings, handleRestoreSetting, restoring]);
+  }, [comparison, checkedSettings, restoreStatuses, hasWriteSettings, hasSecureSettings, handleRestoreSetting, restoring, companion]);
 
   const handleOpenSettings = useCallback(async (intent: string) => {
     await openSettingsScreen(intent);
@@ -236,21 +263,26 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
   // Split diffs by restore capability — filter junk settings that users can't find
   const allAutoDiffs = comparison.settings.filter((d) => d.restoreType === 'auto' && !isJunkSetting(d.key));
   const guidedDiffs = comparison.settings.filter((d) => d.restoreType === 'guided' && !isJunkSetting(d.key));
-  const secureAutoDiffs = hasSecureSettings
+
+  // When companion is connected, ALL non-defaults settings are auto-restorable via ADB
+  const secureAutoDiffs = (companion.available || hasSecureSettings)
     ? guidedDiffs.filter((d) => d.category !== 'defaults')
     : [];
 
   // Only include auto settings we actually have permission to write
-  const autoDiffs = allAutoDiffs.filter((d) => {
-    if (d.category === 'system' && hasWriteSettings === false) return false;
-    if (d.category === 'secure' && !hasSecureSettings) return false;
-    if (d.category === 'global' && !hasSecureSettings) return false;
-    if (d.category === 'samsung' && hasWriteSettings === false && !hasSecureSettings) return false;
-    return true;
-  });
+  // (companion bypasses all permission checks — shell privilege)
+  const autoDiffs = companion.available
+    ? allAutoDiffs
+    : allAutoDiffs.filter((d) => {
+        if (d.category === 'system' && hasWriteSettings === false) return false;
+        if (d.category === 'secure' && !hasSecureSettings) return false;
+        if (d.category === 'global' && !hasSecureSettings) return false;
+        return true;
+      });
 
   // Settings blocked by missing permissions (shown separately with expandable list)
-  const blockedDiffs = allAutoDiffs.filter((d) => !autoDiffs.includes(d));
+  // When companion is connected, nothing is blocked
+  const blockedDiffs = companion.available ? [] : allAutoDiffs.filter((d) => !autoDiffs.includes(d));
   const blockedByPermission = blockedDiffs.length;
 
   // All restorable diffs (auto + unlocked secure)
@@ -272,7 +304,7 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
     secureAutoDiffs.filter((d) => !isAttempted(d))
   );
   const guidedGrouped = groupDiffsByGroup(
-    (hasSecureSettings
+    ((companion.available || hasSecureSettings)
       ? guidedDiffs.filter((d) => d.category === 'defaults')
       : guidedDiffs
     ).filter((d) => !isAttempted(d))
@@ -282,7 +314,7 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
   // Remaining items that haven't been attempted
   const remainingAutoCount = autoDiffs.filter((d) => !isAttempted(d)).length;
   const remainingSecureCount = secureAutoDiffs.filter((d) => !isAttempted(d)).length;
-  const remainingGuidedCount = (hasSecureSettings
+  const remainingGuidedCount = ((companion.available || hasSecureSettings)
     ? guidedDiffs.filter((d) => d.category === 'defaults')
     : guidedDiffs
   ).filter((d) => !isAttempted(d)).length;
@@ -336,7 +368,17 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
             hasSecureSettings={hasSecureSettings}
           />
         )}
-        {!hasSecureSettings && pendingRestorableCount > 0 && failedCount === 0 && (
+        {companion.available && (
+          <View style={[styles.companionBox, { borderLeftColor: '#4ade80' }]}>
+            <Text style={[styles.companionTitle, { color: '#4ade80' }]}>
+              ● Companion Connected
+            </Text>
+            <Text style={styles.companionText}>
+              All settings will be applied via USB — maximum compatibility.
+            </Text>
+          </View>
+        )}
+        {!companion.available && !hasSecureSettings && pendingRestorableCount > 0 && failedCount === 0 && (
           <View style={styles.companionBox}>
             <Text style={styles.companionTitle}>Companion App Recommended</Text>
             <Text style={styles.companionText}>
@@ -353,9 +395,9 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
         {pendingRestorableCount === 0 && (successCount > 0 || failedCount > 0) && (
           <Text style={styles.allDoneBanner}>
             {failedCount > 0 && successCount > 0
-              ? `Done! ${successCount} restored, ${failedCount} not compatible.`
+              ? `Done! ${successCount} restored, ${failedCount} couldn't be changed.`
               : failedCount > 0
-              ? `${failedCount} settings not compatible with this device.`
+              ? `${failedCount} settings couldn't be changed on this device.`
               : 'All checked settings restored!'}
           </Text>
         )}
@@ -415,14 +457,16 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
       )}
 
       {/* Unlocked Restore groups */}
-      {hasSecureSettings && remainingSecureCount > 0 && (
+      {(companion.available || hasSecureSettings) && remainingSecureCount > 0 && (
         <CollapsibleSectionCard
           title={`Unlocked Restore (${remainingSecureCount})`}
           collapsed={sectionCollapsed['secure'] ?? false}
           onToggle={() => toggleSection('secure')}
         >
           <Text style={styles.sectionDescription}>
-            Desktop companion unlocked these. Uncheck any you want to skip.
+            {companion.available
+              ? 'Companion will apply these via USB. Uncheck any you want to skip.'
+              : 'Desktop companion unlocked these. Uncheck any you want to skip.'}
           </Text>
           {secureGrouped.map(({ group, diffs }) => (
             <CollapsibleGroup
@@ -449,7 +493,7 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
         >
           {wizardActive ? (
             <GuidedWizard
-              diffs={(hasSecureSettings
+              diffs={((companion.available || hasSecureSettings)
                 ? guidedDiffs.filter((d) => d.category === 'defaults')
                 : guidedDiffs
               ).filter((d) => restoreStatuses[d.key] !== 'success')}
