@@ -30,17 +30,32 @@
       "intentFilters": [
         {
           "action": "VIEW",
-          "category": ["DEFAULT", "BROWSABLE"],
+          "category": [
+            "DEFAULT",
+            "BROWSABLE"
+          ],
           "data": [
-            { "scheme": "content", "mimeType": "application/json" },
-            { "scheme": "file", "mimeType": "application/json" }
+            {
+              "scheme": "content",
+              "mimeType": "application/json"
+            },
+            {
+              "scheme": "file",
+              "mimeType": "application/json"
+            }
           ]
         },
         {
           "action": "VIEW",
-          "category": ["DEFAULT", "BROWSABLE"],
+          "category": [
+            "DEFAULT",
+            "BROWSABLE"
+          ],
           "data": [
-            { "scheme": "afterswitch", "host": "profile" }
+            {
+              "scheme": "afterswitch",
+              "host": "profile"
+            }
           ]
         }
       ]
@@ -52,6 +67,14 @@
         "expo-camera",
         {
           "cameraPermission": "AfterSwitch needs camera access to scan QR codes for shared profiles."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
         }
       ]
     ],
