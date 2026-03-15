@@ -415,6 +415,11 @@ export default function App() {
               importedProfile={importedProfile}
               onSelectCloudProfile={handleSelectCloudProfile}
               onClearProfile={handleClearProfile}
+              onRescan={async () => {
+                const profile = await buildProfile();
+                setCurrentProfile(profile);
+                await AsyncStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(profile));
+              }}
             />
           )}
           {activeTab === 'browse' && (

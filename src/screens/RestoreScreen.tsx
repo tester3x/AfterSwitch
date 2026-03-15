@@ -30,6 +30,7 @@ type Props = {
   importedProfile: DeviceProfile | null;
   onSelectCloudProfile: (profile: DeviceProfile) => void;
   onClearProfile: () => void;
+  onRescan?: () => void;
 };
 
 type RestoreStatus = 'pending' | 'restoring' | 'success' | 'failed' | 'not_applicable' | 'overridden';
@@ -38,7 +39,7 @@ type RestoreStatus = 'pending' | 'restoring' | 'success' | 'failed' | 'not_appli
 // null = cold open (use collapsed defaults), otherwise use last known state
 let savedCollapseState: Record<string, boolean> | null = null;
 
-export function RestoreScreen({ comparison, currentProfile, importedProfile, onSelectCloudProfile, onClearProfile }: Props) {
+export function RestoreScreen({ comparison, currentProfile, importedProfile, onSelectCloudProfile, onClearProfile, onRescan }: Props) {
   const [restoreStatuses, setRestoreStatuses] = useState<Record<string, RestoreStatus>>({});
   const [hasWriteSettings, setHasWriteSettings] = useState<boolean | null>(null);
   const [hasSecureSettings, setHasSecureSettings] = useState<boolean | null>(null);
@@ -249,7 +250,12 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
     }
 
     setRestoring(false);
-  }, [comparison, allRestorableDiffs, checkedSettings, restoreStatuses, hasWriteSettings, hasSecureSettings, handleRestoreSetting, restoring, companion]);
+
+    // Re-scan device so comparison updates — restored settings drop out of diff list
+    if (onRescan) {
+      setTimeout(() => onRescan(), 500);
+    }
+  }, [comparison, allRestorableDiffs, checkedSettings, restoreStatuses, hasWriteSettings, hasSecureSettings, handleRestoreSetting, restoring, companion, onRescan]);
 
   const handleOpenSettings = useCallback(async (intent: string) => {
     await openSettingsScreen(intent);
