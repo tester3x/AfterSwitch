@@ -27,6 +27,10 @@ type Props = {
 
 type RestoreStatus = 'pending' | 'restoring' | 'success' | 'failed';
 
+// Persists collapse state across tab switches (component unmounts/remounts)
+// null = cold open (use collapsed defaults), otherwise use last known state
+let savedCollapseState: Record<string, boolean> | null = null;
+
 export function RestoreScreen({ comparison, currentProfile, importedProfile, onSelectCloudProfile, onClearProfile }: Props) {
   const [restoreStatuses, setRestoreStatuses] = useState<Record<string, RestoreStatus>>({});
   const [hasWriteSettings, setHasWriteSettings] = useState<boolean | null>(null);
@@ -34,12 +38,15 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
   const [checkedSettings, setCheckedSettings] = useState<Record<string, boolean>>({});
   const [checkedApps, setCheckedApps] = useState<Record<string, boolean>>({});
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
-  const [sectionCollapsed, setSectionCollapsed] = useState<Record<string, boolean>>({
-    auto: true, secure: true, guided: true, apps: true,
-  });
+  const [sectionCollapsed, setSectionCollapsed] = useState<Record<string, boolean>>(
+    savedCollapseState ?? { auto: true, secure: true, guided: true, apps: true }
+  );
   const [restoring, setRestoring] = useState(false);
   const [wizardActive, setWizardActive] = useState(false);
   const [appsShown, setAppsShown] = useState(20);
+
+  // Sync collapse state to module-level var so it survives tab switches
+  React.useEffect(() => { savedCollapseState = sectionCollapsed; }, [sectionCollapsed]);
 
   const isSamsung = useMemo(() => {
     return currentProfile?.device.manufacturer?.toLowerCase().includes('samsung') ?? false;
