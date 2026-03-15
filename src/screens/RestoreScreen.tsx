@@ -34,7 +34,9 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
   const [checkedSettings, setCheckedSettings] = useState<Record<string, boolean>>({});
   const [checkedApps, setCheckedApps] = useState<Record<string, boolean>>({});
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
-  const [sectionCollapsed, setSectionCollapsed] = useState<Record<string, boolean>>({});
+  const [sectionCollapsed, setSectionCollapsed] = useState<Record<string, boolean>>({
+    auto: true, secure: true, guided: true, apps: true,
+  });
   const [restoring, setRestoring] = useState(false);
   const [wizardActive, setWizardActive] = useState(false);
   const [appsShown, setAppsShown] = useState(20);
