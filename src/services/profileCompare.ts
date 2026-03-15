@@ -56,10 +56,12 @@ export function compareProfiles(
   const targetIsSamsung = currentProfile.device.manufacturer?.toLowerCase().includes('samsung') ?? false;
 
   // Compare each settings namespace
-  const namespaces = ['system', 'secure', 'global', 'samsung'] as const;
+  // NOTE: 'samsung' is intentionally excluded. Samsung-prefixed keys are already
+  // captured in their correct system/secure/global namespace by the regular scans.
+  // The samsung bucket duplicates them without tracking source namespace, which
+  // causes writes to go to the wrong provider and silently fail to persist.
+  const namespaces = ['system', 'secure', 'global'] as const;
   for (const ns of namespaces) {
-    // Skip entire samsung namespace when target isn't Samsung
-    if (ns === 'samsung' && !targetIsSamsung) continue;
     const oldSettings = importedProfile.settings[ns] || {};
     const newSettings = currentProfile.settings[ns] || {};
 
