@@ -40,7 +40,8 @@ export function HomeScreen({
   diffCount,
 }: Props) {
   const hasNative = isNativeModuleAvailable();
-  const scanDisabled = settingsMatch && !!profile && !quickChecking;
+  // Scan is always available — user may have changed settings via restore
+  const scanDisabled = false;
 
   return (
     <>
