@@ -129,10 +129,13 @@ For non-curated settings, keyword detection routes to the right Settings section
 ## Desktop Companion App
 - **Path:** `C:\dev\afterswitch-companion\`
 - **Framework:** Electron
-- **Purpose:** Grant `WRITE_SECURE_SETTINGS` permission via ADB (required for auto-restore of secure settings)
-- **How it works:** Uses system ADB (`C:\Users\WellBuilt\AppData\Local\Android\Sdk\platform-tools\adb.exe`), polls every 3s for connected devices, one-click permission grant button
+- **Purpose:** Grant `WRITE_SECURE_SETTINGS` permission via ADB AND write settings via ADB (app-level writes are restricted by Android's ContentProvider whitelist even with WRITE_SECURE_SETTINGS)
+- **ADB bundled:** `platform-tools/adb.exe` + DLLs copied into project, included via `extraResources` in package.json. Users don't need to install ADB separately.
+- **How it works:** Finds bundled ADB first, then system ADB, then PATH. Polls every 3s for connected devices. One-click permission grant button.
+- **Grant fix (3/14/2026):** `grantPermission()` no longer calls heavy `dumpsys package` for verification — trusts `pm grant` return. Fixes hang on Android 16. `maxBuffer` increased to 10MB, timeout to 15s.
 - **UI:** Dark theme matching the app, shows connection status (yellow dots = searching, green = connected)
 - **Note:** Requires USB debugging enabled on phone + USB mode set to "File Transfer" (not "Charge only")
+- **TODO:** Companion needs to do actual settings writes via `adb shell settings put` (not just grant permission). App-level `Settings.putString()` is blocked for most keys on modern Android even with WRITE_SECURE_SETTINGS. The companion already has `writeSetting()` function — needs communication channel to receive write requests from app.
 
 ---
 
@@ -230,19 +233,20 @@ App registered as JSON file handler in `app.json` `intentFilters`. Tapping any J
 - `b111f1a` — Initial project scaffold
 
 ### Recent changes (all committed + pushed)
+- `e22ef52` — Scan button always available (restore changes invalidate match state)
+- `a370d29` — Remove samsung bucket from comparison (fixes false success + reverts — samsung keys already in correct system/secure/global namespaces)
+- `5f38a5a` — Skip settings that don't exist on target device + fix FailedList messaging
+- `1308901` — Persist section collapse state across tab switches (module-level var)
+- `97de39e` — Sections collapsed by default on cold open
+- `148365a` — Companion app messaging + system→secure/global fallback writes
+- `5dacb7d` — Wizard auto-expand (uncollapses guided section on tap)
+- `5e5c281` — Failed settings excluded from restore button + FailedList component
 - `23efafb` — Update CLAUDE.md with recent commit history
 - `a9c39c5` — Add profile name to Restore Progress card (gold device nickname)
 - `9e68dba` — Fix profileIO.ts TypeScript errors (File.text() as string casts)
-- `ff0ef33` — Update CLAUDE.md with latest commit hashes
 - `4c44f28` — Paginate CollapsibleGroup diffs in RestoreScreen to prevent OOM on large groups
-- `6445fc6` — Update CLAUDE.md with recent commit history
 - `7fa8d51` — Paginate all long lists (Scan details, Compare diffs) to prevent OOM crashes
 - `630487d` — Fix app list OOM crash: paginate 20 at a time. Fix GuidedWizard clipboard timeout leak.
-- `6412a3b` — Restore: collapsible sections, remove Install All button, cleaner app install UX
-- `5b96121` — Compare: change profile button + info text. Restore: source label + cross-device warning
-- `226decb` — Compare: collapsed by default, persisted state, single value toggle, same-device fix
-- `6871efd` — Fix cloud profile badge: re-check after auth resolves (race condition)
-- `09c5c0f` — Dedup cloud profiles: one per device model, auto-cleanup old dupes
 
 ---
 
@@ -278,5 +282,8 @@ App registered as JSON file handler in `app.json` `intentFilters`. Tapping any J
 ---
 
 ## Known Issues / Pre-existing
-- **Auto-restore fails without permissions (3/14/2026 field test):** All 120 auto-restore settings fail with 0 permissions granted. Needs: (1) `WRITE_SETTINGS` — granted via Android system UI prompt (permission card already in UI), (2) `WRITE_SECURE_SETTINGS` — granted via companion app ADB. Without these, auto-restore has zero effect.
+- **App-level writes blocked by Android ContentProvider whitelist (ROOT CAUSE 3/14/2026):** Even with WRITE_SECURE_SETTINGS granted, `Settings.Secure.putString()` is blocked for most keys on Android 12+. The SettingsProvider has its own internal whitelist that blocks app-level callers. Only `adb shell settings put` bypasses this (runs at shell privilege). Fix: companion must do the actual writes via ADB, not just grant the permission.
+- **Samsung namespace was duplicating diffs (FIXED `a370d29`):** `getSamsungSettings()` scans all 3 providers and dumps into one flat `samsung` map — but those keys already exist in their correct system/secure/global buckets. The samsung restore branch tried `writeSystemSetting` first, which appeared to succeed (in-memory cache) but wrote to the wrong namespace. Settings reverted on app restart. Fix: removed samsung from comparison entirely.
+- **Cross-model settings that don't exist on target (FIXED `5f38a5a`):** Comparison was including settings only on the source device. These always fail to write. Fix: skip diffs where key exists on source but not target.
 - **Companion app ADB connection:** Requires USB debugging ON + USB mode "File Transfer" (not "Charge only"). If phone is set to "Charge only, don't ask again," user must change via notification shade tap or Settings > Developer Options > Default USB configuration.
+- **Companion Grant button hangs on Android 16 (FIXED):** `dumpsys package` verification was too heavy. Fixed: trust `pm grant` return, skip verification.
