@@ -79,6 +79,10 @@ export function compareProfiles(
       // Skip if both are empty/undefined
       if (!oldVal && !newVal) continue;
 
+      // Skip settings that only exist on the source device — can't restore
+      // a setting that doesn't exist on the target device
+      if (oldVal != null && newVal == null) continue;
+
       // Skip internal junk settings (wallpaper timestamps, carrier state, etc.)
       if (isIgnoredSetting(key)) continue;
 

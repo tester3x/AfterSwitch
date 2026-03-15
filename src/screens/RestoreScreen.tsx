@@ -353,9 +353,9 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
         {pendingRestorableCount === 0 && (successCount > 0 || failedCount > 0) && (
           <Text style={styles.allDoneBanner}>
             {failedCount > 0 && successCount > 0
-              ? `Done! ${successCount} restored, ${failedCount} need companion.`
+              ? `Done! ${successCount} restored, ${failedCount} not compatible.`
               : failedCount > 0
-              ? `${failedCount} settings need the companion app.`
+              ? `${failedCount} settings not compatible with this device.`
               : 'All checked settings restored!'}
           </Text>
         )}
@@ -573,14 +573,15 @@ function FailedList({
     <View style={{ marginBottom: 8 }}>
       <Pressable onPress={() => setExpanded(!expanded)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
         <Text style={{ color: '#f87171', fontSize: 16, fontWeight: '700', marginBottom: 8 }}>
-          {failed.length} setting{failed.length !== 1 ? 's' : ''} need the companion app
+          {failed.length} setting{failed.length !== 1 ? 's' : ''}{' '}
+          {hasSecureSettings ? "couldn't be changed" : 'need the companion app'}
         </Text>
         <Text style={{ color: '#f87171', fontSize: 12, marginBottom: 8 }}>{expanded ? '▾' : '▸'}</Text>
       </Pressable>
       {!expanded && (
         <Text style={{ color: '#6b7fa0', fontSize: 11, marginTop: -4 }}>
           {hasSecureSettings
-            ? 'These settings are protected by Android and cannot be changed.'
+            ? 'These settings may be protected or not supported on this device.'
             : 'Connect the desktop companion via USB to unlock these settings.'}
         </Text>
       )}
