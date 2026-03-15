@@ -140,18 +140,27 @@ For non-curated settings, keyword detection routes to the right Settings section
 ### Companion Bridge (NEW 3/14/2026)
 - **HTTP bridge** (`bridge.js`) — local HTTP server on port 38291
 - **ADB reverse port forwarding** — `adb reverse tcp:38291 tcp:38291` maps phone's `localhost:38291` to PC's `localhost:38291`
+- **Android cleartext HTTP** — requires `usesCleartextTraffic: true` via `expo-build-properties` plugin in app.json
 - **Endpoints:**
   - `GET /ping` — health check, returns `{ status: 'ready', serial, version }`
-  - `POST /apply-settings` — bulk write settings via ADB. Body: `{ settings: [{ namespace, key, value }] }`. Each setting → `adb shell settings put {namespace} {key} {value}`. Returns `{ results: [{ namespace, key, success }], successCount, failedCount }`
-  - `POST /write-setting` — single setting write
+  - `POST /apply-settings` — bulk write settings via ADB. Body: `{ settings: [{ namespace, key, value }] }`. Each setting → `adb shell settings put {namespace} '{key}' '{value}'` (single-quote wrapped). Returns rich status: `{ results: [{ namespace, key, success, status }], successCount, failedCount, notApplicableCount }`
+  - `POST /write-setting` — single setting write, returns `{ success, status }`
+- **Smart write verification** — `adb.js writeSetting()` reads BEFORE and AFTER write:
+  - `success` — value written and verified via read-back
+  - `not_applicable` — key didn't exist before write (was 'null') and still doesn't after (cross-device key mismatch)
+  - `overridden` — key exists but system enforces a different value (protected setting)
 - **Auto-starts** after permission grant or when device reconnects with permission already granted
-- **App-side client** — `src/services/companionBridge.ts`: `isCompanionAvailable()` (2s timeout ping), `writeSettingsViaCompanion()` (bulk write, 30s timeout), `writeSettingViaCompanion()` (single write)
+- **Portable exe** — `npm run build:win` → `dist/AfterSwitch Companion 1.0.0.exe`. Overwrites on rebuild (no version stacking).
+- **App-side client** — `src/services/companionBridge.ts`: `isCompanionAvailable()` (2s timeout ping), `writeSettingsViaCompanion()` (bulk write, 30s timeout), `writeSettingViaCompanion()` (single write). Types: `WriteResultStatus`, `WriteResult`, `BulkWriteResult` with `notApplicableCount`.
 - **RestoreScreen integration:**
   - Checks companion availability on mount + app resume
   - When companion connected: sends ALL non-defaults settings to companion for shell-privilege writes
-  - When no companion: falls back to native module writes (limited by Android restrictions)
+  - When no companion: shows blue "Connect Companion for Best Results" warning (always, even with WRITE_SECURE_SETTINGS — permission alone is insufficient due to ContentProvider whitelist)
+  - Falls back to native module writes (limited by Android restrictions)
   - Green "● Companion Connected" badge in Restore Progress card
   - All non-defaults guided settings become auto-restorable with companion
+  - **Smart status UI:** Green (restored), grey (not on this device), red (system blocked). Color legend after Done banner.
+  - **Auto re-scan after restore** — silently re-scans device so restored settings drop out of diff list. No stale counts.
 
 ---
 
@@ -232,39 +241,21 @@ App registered as JSON file handler in `app.json` `intentFilters`. Tapping any J
 
 ---
 
-## Git History (latest first)
-- `0fc5150` — Share system + content:// fix + Browse tab + QR scanner
-- `5aba6f8` — Wire up CloudProfilesScreen to list/load/delete cloud profiles
-- `ef07a7b` — Remove file picker, show saved file name, simplify IO
-- `cd73033` — Restore tab: show saved profiles + Browse Files when no comparison loaded
-- `1eb5071` — Register as JSON file handler — tap any JSON to import directly
-- `8c4af91` — Add app icon — logo in app.json, splash screen, and in-app header
-- `c59e622` — Restore cloud buttons (Save to Cloud + Load from Cloud)
-- `e3e745b` — Checklist restore + saved profiles on Compare tab + Cloud coming soon
-- `1e33ff4` — Fix profileIO to use new expo-file-system/next API
-- `4cf2530` — Human-friendly profile management + SafeAreaView fix
-- `819dafc` — Fix MainApplication.kt patching for SDK 54 .apply{} pattern
-- `6441267` — Embed Kotlin source inline in config plugin for reliable EAS builds
-- `fb2a594` — Add native module Kotlin files for EAS build
-- `b111f1a` — Initial project scaffold
-
-### Recent changes (all committed + pushed)
-- `88c4593` — Companion bridge: app-side HTTP client + RestoreScreen integration (shell-privilege writes via USB)
-- `1131d8c` — Update CLAUDE.md with samsung namespace + ContentProvider whitelist findings
-- `e22ef52` — Scan button always available (restore changes invalidate match state)
-- `a370d29` — Remove samsung bucket from comparison (fixes false success + reverts — samsung keys already in correct system/secure/global namespaces)
-- `5f38a5a` — Skip settings that don't exist on target device + fix FailedList messaging
-- `1308901` — Persist section collapse state across tab switches (module-level var)
-- `97de39e` — Sections collapsed by default on cold open
-- `148365a` — Companion app messaging + system→secure/global fallback writes
-- `5dacb7d` — Wizard auto-expand (uncollapses guided section on tap)
-- `5e5c281` — Failed settings excluded from restore button + FailedList component
-- `23efafb` — Update CLAUDE.md with recent commit history
-- `a9c39c5` — Add profile name to Restore Progress card (gold device nickname)
-- `9e68dba` — Fix profileIO.ts TypeScript errors (File.text() as string casts)
-- `4c44f28` — Paginate CollapsibleGroup diffs in RestoreScreen to prevent OOM on large groups
-- `7fa8d51` — Paginate all long lists (Scan details, Compare diffs) to prevent OOM crashes
-- `630487d` — Fix app list OOM crash: paginate 20 at a time. Fix GuidedWizard clipboard timeout leak.
+## Recent Git History (latest first, all committed + pushed)
+- `cc410e4` — Re-scan device after restore so restored settings drop out of diff list
+- `b1cf5bf` — Companion warning always shows when disconnected + restore status legend
+- `e3b5597` — Smart restore status: success / not_applicable / overridden (3-way classification)
+- `219508e` — Add 18 new junk key patterns (hearing calibration, BT codec volumes, runtime state)
+- `a89165b` — Fix restore count mismatch (use allRestorableDiffs instead of comparison.settings)
+- `1fb0895` — Enable cleartext HTTP for companion bridge (usesCleartextTraffic)
+- `88c4593` — Companion bridge: app-side HTTP client + RestoreScreen integration
+- `a370d29` — Remove samsung bucket from comparison (fixes false success + reverts)
+- `5f38a5a` — Skip settings that don't exist on target device
+- `a9c39c5` — Add profile name to Restore Progress card
+- `9e68dba` — Fix profileIO.ts TypeScript errors
+- `4c44f28` — Paginate CollapsibleGroup diffs in RestoreScreen
+- `7fa8d51` — Paginate all long lists (Scan details, Compare diffs)
+- `630487d` — Fix app list OOM crash: paginate 20 at a time
 
 ---
 
