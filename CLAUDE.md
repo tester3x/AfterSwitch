@@ -64,6 +64,7 @@
 | Cloud Profiles | `src/services/cloudProfiles.ts` | Firebase cloud storage for profiles. `loadLatestCloudProfile()` for auto-load. |
 | Shared Profiles | `src/services/sharedProfiles.ts` | Community sharing: share/unshare profiles, browse, search by share code |
 | Quick Check | `src/services/quickCheck.ts` | Fast 14-setting spot-check to detect if device matches saved profile |
+| Companion Bridge | `src/services/companionBridge.ts` | HTTP client for companion desktop app (ADB shell-privilege writes via USB) |
 | Firebase | `src/services/firebase.ts` | Firebase init + Google Sign-In + auth helpers |
 
 ### Components
@@ -129,13 +130,28 @@ For non-curated settings, keyword detection routes to the right Settings section
 ## Desktop Companion App
 - **Path:** `C:\dev\afterswitch-companion\`
 - **Framework:** Electron
-- **Purpose:** Grant `WRITE_SECURE_SETTINGS` permission via ADB AND write settings via ADB (app-level writes are restricted by Android's ContentProvider whitelist even with WRITE_SECURE_SETTINGS)
+- **Purpose:** Grant `WRITE_SECURE_SETTINGS` permission via ADB AND write settings via `adb shell settings put` at shell privilege level (app-level `Settings.putString()` is restricted by Android's ContentProvider whitelist even with WRITE_SECURE_SETTINGS)
 - **ADB bundled:** `platform-tools/adb.exe` + DLLs copied into project, included via `extraResources` in package.json. Users don't need to install ADB separately.
 - **How it works:** Finds bundled ADB first, then system ADB, then PATH. Polls every 3s for connected devices. One-click permission grant button.
 - **Grant fix (3/14/2026):** `grantPermission()` no longer calls heavy `dumpsys package` for verification — trusts `pm grant` return. Fixes hang on Android 16. `maxBuffer` increased to 10MB, timeout to 15s.
 - **UI:** Dark theme matching the app, shows connection status (yellow dots = searching, green = connected)
 - **Note:** Requires USB debugging enabled on phone + USB mode set to "File Transfer" (not "Charge only")
-- **TODO:** Companion needs to do actual settings writes via `adb shell settings put` (not just grant permission). App-level `Settings.putString()` is blocked for most keys on modern Android even with WRITE_SECURE_SETTINGS. The companion already has `writeSetting()` function — needs communication channel to receive write requests from app.
+
+### Companion Bridge (NEW 3/14/2026)
+- **HTTP bridge** (`bridge.js`) — local HTTP server on port 38291
+- **ADB reverse port forwarding** — `adb reverse tcp:38291 tcp:38291` maps phone's `localhost:38291` to PC's `localhost:38291`
+- **Endpoints:**
+  - `GET /ping` — health check, returns `{ status: 'ready', serial, version }`
+  - `POST /apply-settings` — bulk write settings via ADB. Body: `{ settings: [{ namespace, key, value }] }`. Each setting → `adb shell settings put {namespace} {key} {value}`. Returns `{ results: [{ namespace, key, success }], successCount, failedCount }`
+  - `POST /write-setting` — single setting write
+- **Auto-starts** after permission grant or when device reconnects with permission already granted
+- **App-side client** — `src/services/companionBridge.ts`: `isCompanionAvailable()` (2s timeout ping), `writeSettingsViaCompanion()` (bulk write, 30s timeout), `writeSettingViaCompanion()` (single write)
+- **RestoreScreen integration:**
+  - Checks companion availability on mount + app resume
+  - When companion connected: sends ALL non-defaults settings to companion for shell-privilege writes
+  - When no companion: falls back to native module writes (limited by Android restrictions)
+  - Green "● Companion Connected" badge in Restore Progress card
+  - All non-defaults guided settings become auto-restorable with companion
 
 ---
 
@@ -233,6 +249,8 @@ App registered as JSON file handler in `app.json` `intentFilters`. Tapping any J
 - `b111f1a` — Initial project scaffold
 
 ### Recent changes (all committed + pushed)
+- `88c4593` — Companion bridge: app-side HTTP client + RestoreScreen integration (shell-privilege writes via USB)
+- `1131d8c` — Update CLAUDE.md with samsung namespace + ContentProvider whitelist findings
 - `e22ef52` — Scan button always available (restore changes invalidate match state)
 - `a370d29` — Remove samsung bucket from comparison (fixes false success + reverts — samsung keys already in correct system/secure/global namespaces)
 - `5f38a5a` — Skip settings that don't exist on target device + fix FailedList messaging
@@ -282,7 +300,7 @@ App registered as JSON file handler in `app.json` `intentFilters`. Tapping any J
 ---
 
 ## Known Issues / Pre-existing
-- **App-level writes blocked by Android ContentProvider whitelist (ROOT CAUSE 3/14/2026):** Even with WRITE_SECURE_SETTINGS granted, `Settings.Secure.putString()` is blocked for most keys on Android 12+. The SettingsProvider has its own internal whitelist that blocks app-level callers. Only `adb shell settings put` bypasses this (runs at shell privilege). Fix: companion must do the actual writes via ADB, not just grant the permission.
+- **App-level writes blocked by Android ContentProvider whitelist (ROOT CAUSE 3/14/2026, FIXED `88c4593`):** Even with WRITE_SECURE_SETTINGS granted, `Settings.Secure.putString()` is blocked for most keys on Android 12+. The SettingsProvider has its own internal whitelist that blocks app-level callers. Only `adb shell settings put` bypasses this (runs at shell privilege). Fix: companion bridge sends settings via HTTP → companion writes each setting via `adb shell settings put`. Without companion, falls back to native module writes (limited).
 - **Samsung namespace was duplicating diffs (FIXED `a370d29`):** `getSamsungSettings()` scans all 3 providers and dumps into one flat `samsung` map — but those keys already exist in their correct system/secure/global buckets. The samsung restore branch tried `writeSystemSetting` first, which appeared to succeed (in-memory cache) but wrote to the wrong namespace. Settings reverted on app restart. Fix: removed samsung from comparison entirely.
 - **Cross-model settings that don't exist on target (FIXED `5f38a5a`):** Comparison was including settings only on the source device. These always fail to write. Fix: skip diffs where key exists on source but not target.
 - **Companion app ADB connection:** Requires USB debugging ON + USB mode "File Transfer" (not "Charge only"). If phone is set to "Charge only, don't ask again," user must change via notification shade tap or Settings > Developer Options > Default USB configuration.
