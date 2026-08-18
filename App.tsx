@@ -15,6 +15,7 @@ import { compareProfiles } from './src/services/profileCompare';
 import { exportProfileJson, saveProfileLocally, importProfileFromUri } from './src/services/profileIO';
 import { saveProfileToCloud, loadLatestCloudProfile, loadCloudProfile } from './src/services/cloudProfiles';
 import { getProfileByShareCode } from './src/services/sharedProfiles';
+import { COMMUNITY_RETRIEVAL_ENABLED, PRIVACY_HOLD_MESSAGE } from './src/services/privacyHold';
 import { quickSettingsCheck, type QuickCheckResult } from './src/services/quickCheck';
 import { onAuthChanged, signOutUser, type User } from './src/services/firebase';
 import { TabButton } from './src/components/TabButton';
@@ -54,6 +55,13 @@ export default function App() {
     // Handle share code deep links: afterswitch://profile/{code}
     const shareMatch = url.match(/afterswitch:\/\/profile\/([A-Za-z0-9]+)/);
     if (shareMatch) {
+      // PRIVACY HOLD — a deep link is an externally supplied navigation
+      // path, so it is refused here as well as in the service. Refusing
+      // before the lookup means the held branch is never entered.
+      if (!COMMUNITY_RETRIEVAL_ENABLED) {
+        setStatusMessage(PRIVACY_HOLD_MESSAGE);
+        return;
+      }
       const code = shareMatch[1].toUpperCase();
       setStatusMessage(`Looking up share code ${code}...`);
       try {
@@ -222,22 +230,13 @@ export default function App() {
       setSavedFileName(fileName);
       setStatusMessage(`Saved: ${fileName}`);
 
-      // Auto-save to cloud (fire-and-forget)
-      setCloudSaving(true);
+      // PRIVACY HOLD — the automatic cloud save is REMOVED, not merely
+      // caught. A scan used to upload the complete unredacted profile
+      // fire-and-forget, without the user asking or being told. The call no
+      // longer starts, so nothing is serialized for the network. The service
+      // refuses independently as well; see services/privacyHold.ts.
+      setCloudSaving(false);
       setCloudSaved(false);
-      saveProfileToCloud(profile)
-        .then((id) => {
-          setStatusMessage(`Saved locally + cloud (${id})`);
-          setCloudSaved(true);
-          setCloudHasProfile(true);
-        })
-        .catch((e) => {
-          console.log('Cloud save failed:', e);
-          setStatusMessage(`Saved locally. Cloud save failed.`);
-        })
-        .finally(() => {
-          setCloudSaving(false);
-        });
     } catch (error) {
       setStatusMessage(`Scan failed: ${String(error)}`);
     } finally {
@@ -283,17 +282,13 @@ export default function App() {
   }, []);
 
   const handleSaveToCloud = useCallback(async () => {
+    // PRIVACY HOLD — the manual path sent the same raw schema as the
+    // automatic one, so it is held too. Reported honestly: the profile is
+    // on the device, and nothing was uploaded.
     if (!currentProfile) return;
-    setCloudSaving(true);
-    try {
-      const id = await saveProfileToCloud(currentProfile);
-      setCloudHasProfile(true);
-      setStatusMessage(`Saved to cloud (${id})`);
-    } catch (e) {
-      setStatusMessage(`Cloud save failed: ${String(e)}`);
-    } finally {
-      setCloudSaving(false);
-    }
+    setStatusMessage(
+      'Cloud backup is temporarily disabled while privacy protections are upgraded. Your profile is saved on this device.',
+    );
   }, [currentProfile]);
 
   const handleSignOut = useCallback(async () => {

@@ -18,6 +18,7 @@ import {
 } from '../services/sharedProfiles';
 import type { DeviceProfile } from '../types/profile';
 import type { QueryDocumentSnapshot } from 'firebase/firestore';
+import { COMMUNITY_RETRIEVAL_ENABLED, PRIVACY_HOLD_MESSAGE } from '../services/privacyHold';
 
 type Props = {
   onSelectProfile: (profile: DeviceProfile) => void;
@@ -26,6 +27,23 @@ type Props = {
 const MANUFACTURERS = ['Samsung', 'Google', 'OnePlus', 'Xiaomi', 'Motorola'];
 
 export function BrowseScreen({ onSelectProfile }: Props) {
+  // PRIVACY HOLD — return before any state, effect or fetch is set up, so
+  // the browse query, share-code lookup and QR scanner are all unreachable
+  // rather than merely hidden. The services refuse independently too.
+  if (!COMMUNITY_RETRIEVAL_ENABLED) {
+    return (
+      <SectionCard title="Community" subtitle="Temporarily unavailable">
+        <Text style={styles.holdText}>{PRIVACY_HOLD_MESSAGE}</Text>
+        <Text style={styles.holdSub}>
+          Importing and exporting profile files still works normally.
+        </Text>
+      </SectionCard>
+    );
+  }
+  return <BrowseScreenLive onSelectProfile={onSelectProfile} />;
+}
+
+function BrowseScreenLive({ onSelectProfile }: Props) {
   const [profiles, setProfiles] = useState<SharedProfileMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -301,6 +319,8 @@ export function BrowseScreen({ onSelectProfile }: Props) {
 }
 
 const styles = StyleSheet.create({
+  holdText: { color: '#e8e8e8', fontSize: 15, lineHeight: 22 },
+  holdSub: { color: '#9a9a9a', fontSize: 13, marginTop: 10, lineHeight: 19 },
   // Code input
   codeRow: {
     flexDirection: 'row',

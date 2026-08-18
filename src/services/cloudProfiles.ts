@@ -19,6 +19,7 @@ import {
 } from 'firebase/firestore';
 import { db, ensureAuth } from './firebase';
 import type { DeviceProfile } from '../types/profile';
+import { assertRawCloudUploadAllowed } from './privacyHold';
 
 /** Metadata shown in the profile list (without the full settings blob). */
 export type CloudProfileMeta = {
@@ -39,6 +40,9 @@ const COLLECTION = 'afterswitch_profiles';
  * Old timestamp-based duplicates are cleaned up automatically.
  */
 export async function saveProfileToCloud(profile: DeviceProfile): Promise<string> {
+  // PRIVACY HOLD — first statement, before the profile is read or a
+  // doc ref is built. This ran fire-and-forget after EVERY scan.
+  assertRawCloudUploadAllowed();
   const user = ensureAuth();
 
   const safeModel = profile.device.model.replace(/[^a-zA-Z0-9-_]/g, '-');

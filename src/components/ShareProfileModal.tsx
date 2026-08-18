@@ -18,6 +18,7 @@ import {
   type SharedProfileMeta,
 } from '../services/sharedProfiles';
 import type { DeviceProfile } from '../types/profile';
+import { COMMUNITY_SHARING_ENABLED, PRIVACY_HOLD_MESSAGE } from '../services/privacyHold';
 
 type Props = {
   visible: boolean;
@@ -27,6 +28,31 @@ type Props = {
 };
 
 export function ShareProfileModal({ visible, profile, ownerName, onClose }: Props) {
+  // PRIVACY HOLD — return before any state or effect, so the "already
+  // shared?" lookup never runs and no share action can be reached. The
+  // service refuses independently; see services/privacyHold.ts.
+  if (!COMMUNITY_SHARING_ENABLED) {
+    return (
+      <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+        <View style={styles.overlay}>
+          <View style={styles.sheet}>
+            <Text style={styles.title}>Community sharing paused</Text>
+            <Text style={styles.holdText}>{PRIVACY_HOLD_MESSAGE}</Text>
+            <Text style={styles.holdSub}>
+              You can still export this profile to a file and send it yourself.
+            </Text>
+            <Pressable onPress={onClose}>
+              <Text style={styles.closeBtn}>Close</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+  return <ShareProfileModalLive visible={visible} profile={profile} ownerName={ownerName} onClose={onClose} />;
+}
+
+function ShareProfileModalLive({ visible, profile, ownerName, onClose }: Props) {
   const [sharing, setSharing] = useState(false);
   const [sharedMeta, setSharedMeta] = useState<SharedProfileMeta | null>(null);
   const [loading, setLoading] = useState(true);
@@ -225,6 +251,8 @@ export function ShareProfileModal({ visible, profile, ownerName, onClose }: Prop
 }
 
 const styles = StyleSheet.create({
+  holdText: { color: '#e8e8e8', fontSize: 15, lineHeight: 22, marginTop: 4 },
+  holdSub: { color: '#9a9a9a', fontSize: 13, marginTop: 10, lineHeight: 19 },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',

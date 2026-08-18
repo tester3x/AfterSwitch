@@ -24,6 +24,10 @@ import {
 } from 'firebase/firestore';
 import { db, ensureAuth } from './firebase';
 import type { DeviceProfile } from '../types/profile';
+import {
+  assertCommunitySharingAllowed,
+  assertCommunityRetrievalAllowed,
+} from './privacyHold';
 
 /** Metadata for browsing shared profiles. */
 export type SharedProfileMeta = {
@@ -81,6 +85,11 @@ export async function shareProfile(
   profile: DeviceProfile,
   ownerName: string,
 ): Promise<{ sharedId: string; shareCode: string }> {
+  // PRIVACY HOLD — first statement, before `profile` is read at all.
+  // This function wrote JSON.stringify(profile) — the complete unredacted
+  // Settings dump, app inventory and device identity — into a collection
+  // any authenticated user can read.
+  assertCommunitySharingAllowed();
   const user = ensureAuth();
   const shareCode = await generateUniqueShareCode();
 
@@ -116,6 +125,8 @@ export async function shareProfile(
  * Only the owner can do this (enforced by checking ownerUid).
  */
 export async function unshareProfile(sharedId: string): Promise<void> {
+  // PRIVACY HOLD — refuse before any Firestore call. Community write.
+  assertCommunitySharingAllowed();
   const user = ensureAuth();
   const docRef = doc(db, SHARED_COLLECTION, sharedId);
   const snap = await getDoc(docRef);
@@ -133,6 +144,8 @@ export async function unshareProfile(sharedId: string): Promise<void> {
  * Returns metadata for their shared profiles.
  */
 export async function getMySharedProfiles(): Promise<SharedProfileMeta[]> {
+  // PRIVACY HOLD — refuse before any Firestore call. Reads the held collection.
+  assertCommunityRetrievalAllowed();
   const user = ensureAuth();
 
   const q = query(
@@ -154,6 +167,8 @@ export async function browseSharedProfiles(options?: {
   pageSize?: number;
   afterDoc?: QueryDocumentSnapshot;
 }): Promise<{ profiles: SharedProfileMeta[]; lastDoc: QueryDocumentSnapshot | null }> {
+  // PRIVACY HOLD — refuse before any Firestore call. Reads the held collection.
+  assertCommunityRetrievalAllowed();
   const pageSize = options?.pageSize ?? 20;
 
   const constraints: any[] = [];
@@ -182,6 +197,8 @@ export async function browseSharedProfiles(options?: {
  * Look up a shared profile by its 6-char share code.
  */
 export async function getProfileByShareCode(code: string): Promise<DeviceProfile | null> {
+  // PRIVACY HOLD — refuse before any Firestore call. Share-code lookup.
+  assertCommunityRetrievalAllowed();
   const normalized = code.toUpperCase().trim();
   const q = query(
     collection(db, SHARED_COLLECTION),
@@ -204,6 +221,8 @@ export async function getProfileByShareCode(code: string): Promise<DeviceProfile
  * Load a shared profile by document ID (for deep links).
  */
 export async function getSharedProfileById(sharedId: string): Promise<DeviceProfile | null> {
+  // PRIVACY HOLD — refuse before any Firestore call. QR / deep-link lookup.
+  assertCommunityRetrievalAllowed();
   const docRef = doc(db, SHARED_COLLECTION, sharedId);
   const snap = await getDoc(docRef);
 

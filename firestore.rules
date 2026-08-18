@@ -13,33 +13,37 @@ service cloud.firestore {
     }
 
     // ============================================================
-    // Shared community profiles (public browse, owner-only write)
-    // shared_profiles/{sharedId}
+    // Shared community profiles — RETIRED, HELD DENY-ALL
+    //
+    // The previous rule allowed ANY authenticated user to read every
+    // document here, and the client wrote JSON.stringify(profile) into
+    // each one — the complete unredacted Settings.System/Secure/Global
+    // dump, the Samsung OEM keys, the full installed-app list and the
+    // device identity. That published android_id, Bluetooth identifiers,
+    // the device nickname (routinely a person's real name), enabled
+    // accessibility services and default apps to strangers.
+    //
+    // The raw-profile sharing format is retired. Sharing itself is not
+    // abandoned: a future implementation will use a SEPARATE allowlisted
+    // presentation schema carrying only deliberately chosen setup data,
+    // never a filtered copy of a private backup. That schema is not
+    // implemented yet, so this path stays closed.
+    //
+    // {document=**} covers the collection AND any subcollection beneath a
+    // shared profile document, so nothing under this path is reachable.
+    //
+    // Do NOT relax this to unblock a demo. Re-opening requires the
+    // separate schema, an outbound allowlist, hostile-input validation, a
+    // privacy review, and tests — see src/services/privacyHold.ts.
+    //
+    // NOTE: Firestore rules are OR-based across overlapping matches — a
+    // deny never subtracts from a grant. This is effective deny-all only
+    // because NO other match in this file grants access to this path; the
+    // catch-all below is itself `if false`. Any future rule that could
+    // match /shared_profiles must not grant.
     // ============================================================
-    match /shared_profiles/{sharedId} {
-      // Any authenticated user can browse/read shared profiles
-      allow read: if request.auth != null;
-
-      // Only the profile owner can create (must set ownerUid to their uid)
-      allow create: if request.auth != null
-                    && request.resource.data.ownerUid == request.auth.uid;
-
-      // Only the owner can delete their own shared profile
-      allow delete: if request.auth != null
-                    && resource.data.ownerUid == request.auth.uid;
-
-      // Allow download count increment by anyone authenticated,
-      // but ONLY the downloads field can change (no other fields)
-      allow update: if request.auth != null
-                    && (
-                      // Owner can update anything
-                      resource.data.ownerUid == request.auth.uid
-                      // Non-owner can ONLY increment downloads
-                      || (
-                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['downloads'])
-                        && request.resource.data.downloads == resource.data.downloads + 1
-                      )
-                    );
+    match /shared_profiles/{document=**} {
+      allow read, write: if false;
     }
 
     // ============================================================
