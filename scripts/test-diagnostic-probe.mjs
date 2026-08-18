@@ -56,8 +56,9 @@ function ktFun(src, name) {
     !kt.includes('afterswitch_permission_test'));
   check('no code creates afterswitch_permission_test (inline fallback)',
     !ktInline.includes('afterswitch_permission_test'));
-  check('the inline fallback also uses checkSelfPermission (no divergence)',
-    /checkSelfPermission/.test(ktInline));
+  // The inline fallback was REMOVED, so there is nothing left to diverge.
+  check('no inline Kotlin fallback exists at all',
+    !ktInline.includes("DEVICE_SETTINGS_MODULE_KT"));
 }
 
 // ── 3-6. The probe is constrained ───────────────────────────────────────

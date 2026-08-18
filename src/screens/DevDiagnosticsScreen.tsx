@@ -86,7 +86,18 @@ function DevDiagnosticsLive() {
     try {
       const result = await diagnosticSameValueWrite(namespace, key);
       setResults((prev) => ({ ...prev, [id]: result }));
+    } catch {
+      // A missing native method, a rejected bridge promise, or any unexpected
+      // throw renders the coarse 'error' and nothing else. The exception text
+      // is deliberately discarded: it can carry a key name or a value, and no
+      // setting value may ever reach the screen.
+      //
+      // Without this catch the rejection went unhandled, no result was set,
+      // and a build whose native method was missing simply looked like a
+      // button that did nothing.
+      setResults((prev) => ({ ...prev, [id]: 'error' }));
     } finally {
+      // Always release the button, on success and on failure alike.
       setRunning(null);
       inFlight.current = false;
     }

@@ -38,7 +38,16 @@ function ktFun(src, name) {
 }
 
 // The capability check must never write.
-for (const [label, src] of [['authoritative Kotlin', KT], ['inline fallback', INLINE]]) {
+// The inline Kotlin fallback was REMOVED: plugins/android is now the single
+// source, and the config plugin throws if it is absent. Asserting parity
+// between two hand-maintained copies is no longer the right property --
+// asserting that the second copy cannot exist is stronger.
+check('no inline Kotlin fallback exists to drift from the canonical source',
+  !/DEVICE_SETTINGS_MODULE_KT|DEVICE_SETTINGS_PACKAGE_KT/.test(INLINE));
+check('the config plugin fails hard when the canonical source is missing',
+  INLINE.includes('missingSrc.length > 0') && INLINE.includes('throw new Error('));
+
+for (const [label, src] of [['authoritative Kotlin', KT]]) {
   const fn = ktFun(src, 'canWriteSecureSettings');
   check(`${label}: capability check exists`, fn !== null);
   check(`${label}: capability check performs NO write`,
