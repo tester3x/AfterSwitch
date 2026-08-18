@@ -303,14 +303,22 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
      */
     @ReactMethod
     fun canWriteSecureSettings(promise: Promise) {
+        // PERMISSION ONLY. This reports whether WRITE_SECURE_SETTINGS is held.
+        // It does NOT report whether a known system key can actually be
+        // written; on Android 12+ those are different questions and only a
+        // device experiment can answer the second one.
+        //
+        // The previous implementation wrote "afterswitch_permission_test" into
+        // Settings.Secure and treated success as proof. That was misleading in
+        // the worst way: Android 12+ SettingsProvider permits an app to create
+        // arbitrary NEW keys while refusing writes to known system keys. So the
+        // probe succeeded exactly when it mattered least, reported "capable",
+        // and left a stray key behind. A capability check must not mutate.
         try {
-            // Try writing a harmless value and reverting it
-            val testKey = "afterswitch_permission_test"
-            Settings.Secure.putString(reactContext.contentResolver, testKey, "1")
-            Settings.Secure.putString(reactContext.contentResolver, testKey, null)
-            promise.resolve(true)
-        } catch (e: SecurityException) {
-            promise.resolve(false)
+            val granted = reactContext.checkSelfPermission(
+                android.Manifest.permission.WRITE_SECURE_SETTINGS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            promise.resolve(granted)
         } catch (e: Exception) {
             promise.resolve(false)
         }

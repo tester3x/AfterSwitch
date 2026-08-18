@@ -239,13 +239,15 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun canWriteSecureSettings(promise: Promise) {
+        // PERMISSION ONLY — does not prove a known system key is writable.
+        // Kept in sync with plugins/android/DeviceSettingsModule.kt, which
+        // TAKES PRECEDENCE: the plugin copies that file when it exists and
+        // only falls back to this inline source when it does not.
         try {
-            val testKey = "afterswitch_permission_test"
-            Settings.Secure.putString(reactContext.contentResolver, testKey, "1")
-            Settings.Secure.putString(reactContext.contentResolver, testKey, null)
-            promise.resolve(true)
-        } catch (e: SecurityException) {
-            promise.resolve(false)
+            val granted = reactContext.checkSelfPermission(
+                android.Manifest.permission.WRITE_SECURE_SETTINGS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            promise.resolve(granted)
         } catch (e: Exception) {
             promise.resolve(false)
         }

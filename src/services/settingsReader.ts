@@ -93,9 +93,33 @@ export async function requestWritePermission(): Promise<void> {
   await DeviceSettings.requestWritePermission();
 }
 
+/**
+ * Whether WRITE_SECURE_SETTINGS is HELD. Not whether a restore will work.
+ *
+ * Android 12+ SettingsProvider can hold the permission and still refuse
+ * writes to known system keys, so `true` here means "permitted, capability
+ * untested" — never "restore-capable". Use `secureWriteCapability()` when
+ * the distinction matters. Proving the second question needs a device
+ * experiment, not a code change.
+ */
 export async function canWriteSecureSettings(): Promise<boolean> {
   if (!isNativeModuleAvailable()) return false;
   return await DeviceSettings.canWriteSecureSettings();
+}
+
+/**
+ * Tri-state so the two questions can never be conflated:
+ *   'not_granted'      — the permission is absent
+ *   'granted_untested' — held, but writing a KNOWN key is unproven
+ *   'unavailable'      — no native module in this build
+ */
+export type SecureWriteCapability = 'unavailable' | 'not_granted' | 'granted_untested';
+
+export async function secureWriteCapability(): Promise<SecureWriteCapability> {
+  if (!isNativeModuleAvailable()) return 'unavailable';
+  return (await DeviceSettings.canWriteSecureSettings())
+    ? 'granted_untested'
+    : 'not_granted';
 }
 
 // ==================== WRITE ====================
