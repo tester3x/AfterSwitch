@@ -122,6 +122,45 @@ export async function secureWriteCapability(): Promise<SecureWriteCapability> {
     : 'not_granted';
 }
 
+// ============ TEMPORARY EXPERIMENT — remove after the capability run ======
+
+/** Coarse outcomes of the same-value diagnostic. Never carries a value. */
+export type DiagnosticWriteResult =
+  | 'permission_missing'
+  | 'key_not_present'
+  | 'same_value_write_succeeded'
+  | 'security_exception'
+  | 'system_overrode'
+  | 'error';
+
+/** The only namespaces and keys the diagnostic will accept. */
+export const DIAGNOSTIC_KEYS = {
+  secure: ['long_press_timeout', 'show_ime_with_hard_keyboard', 'spell_checker_enabled'],
+  global: ['window_animation_scale', 'transition_animation_scale', 'animator_duration_scale'],
+} as const;
+
+export type DiagnosticNamespace = keyof typeof DIAGNOSTIC_KEYS;
+
+/**
+ * DEVELOPMENT DIAGNOSTIC. Reads a known key and writes back the exact value
+ * it just read, so observable configuration cannot change. Refuses anything
+ * off the allowlist and refuses absent keys, so it can never create one.
+ *
+ * Never called by scan, restore, startup or any background path — the
+ * diagnostic screen is its only caller.
+ */
+export async function diagnosticSameValueWrite(
+  namespace: DiagnosticNamespace,
+  key: string,
+): Promise<DiagnosticWriteResult> {
+  if (!isNativeModuleAvailable()) return 'error';
+  const allowed: readonly string[] = DIAGNOSTIC_KEYS[namespace];
+  // Refuse on the JS side too, so a caller cannot reach the bridge with an
+  // arbitrary key even if the native allowlist were ever loosened.
+  if (!allowed.includes(key)) return 'error';
+  return await DeviceSettings.diagnosticSameValueWrite(namespace, key);
+}
+
 // ==================== WRITE ====================
 
 export async function writeSystemSetting(key: string, value: string): Promise<boolean> {

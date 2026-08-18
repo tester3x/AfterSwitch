@@ -332,6 +332,89 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
      * Falls back to direct ContentResolver write for Samsung custom settings
      * that aren't in Android's SETTINGS_TO_BACKUP whitelist (throws IllegalArgumentException).
      */
+    // ======= TEMPORARY EXPERIMENT — remove after the capability run =======
+    //
+    // Decides ONE question: with WRITE_SECURE_SETTINGS granted, can this app
+    // write a KNOWN EXISTING system key? That answer decides whether the
+    // desktop companion must remain a live write bridge or can shrink to a
+    // one-time permission-granting utility.
+    //
+    // Constrained on purpose: two namespaces, a hardcoded allowlist, reads
+    // the current value and writes back THAT EXACT VALUE so observable
+    // configuration cannot change, refuses absent keys so it can never
+    // create one, returns a coarse status and never the value, no retry.
+    private val DIAGNOSTIC_SECURE_KEYS = setOf(
+        "long_press_timeout",
+        "show_ime_with_hard_keyboard",
+        "spell_checker_enabled"
+    )
+    private val DIAGNOSTIC_GLOBAL_KEYS = setOf(
+        "window_animation_scale",
+        "transition_animation_scale",
+        "animator_duration_scale"
+    )
+
+    @ReactMethod
+    fun diagnosticSameValueWrite(namespace: String, key: String, promise: Promise) {
+        try {
+            val allowed = when (namespace) {
+                "secure" -> DIAGNOSTIC_SECURE_KEYS
+                "global" -> DIAGNOSTIC_GLOBAL_KEYS
+                else -> {
+                    promise.resolve("error")
+                    return
+                }
+            }
+            if (!allowed.contains(key)) {
+                promise.resolve("error")
+                return
+            }
+
+            val granted = reactContext.checkSelfPermission(
+                android.Manifest.permission.WRITE_SECURE_SETTINGS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                promise.resolve("permission_missing")
+                return
+            }
+
+            val resolver = reactContext.contentResolver
+            val current = if (namespace == "secure") {
+                Settings.Secure.getString(resolver, key)
+            } else {
+                Settings.Global.getString(resolver, key)
+            }
+            // Absent key: refuse. Writing here would CREATE a key, which is
+            // exactly the false positive this diagnostic exists to avoid.
+            if (current == null) {
+                promise.resolve("key_not_present")
+                return
+            }
+
+            // Write back the value just read. Nothing else is ever written.
+            if (namespace == "secure") {
+                Settings.Secure.putString(resolver, key, current)
+            } else {
+                Settings.Global.putString(resolver, key, current)
+            }
+
+            val after = if (namespace == "secure") {
+                Settings.Secure.getString(resolver, key)
+            } else {
+                Settings.Global.getString(resolver, key)
+            }
+            if (after == current) {
+                promise.resolve("same_value_write_succeeded")
+            } else {
+                promise.resolve("system_overrode")
+            }
+        } catch (e: SecurityException) {
+            promise.resolve("security_exception")
+        } catch (e: Exception) {
+            promise.resolve("error")
+        }
+    }
+
     @ReactMethod
     fun writeSystemSetting(key: String, value: String, promise: Promise) {
         try {
