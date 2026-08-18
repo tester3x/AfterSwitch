@@ -10,7 +10,7 @@ import { RestoreScreen } from './src/screens/RestoreScreen';
 import { BrowseScreen } from './src/screens/BrowseScreen';
 import { ShareProfileModal } from './src/components/ShareProfileModal';
 import type { AppTab, ComparisonResult, DeviceProfile, ScanProgress } from './src/types/profile';
-import { buildProfile } from './src/services/profileBuilder';
+import { buildProfile, NativeCaptureUnavailableError } from './src/services/profileBuilder';
 import { compareProfiles } from './src/services/profileCompare';
 import { exportProfileJson, saveProfileLocally, importProfileFromUri } from './src/services/profileIO';
 import { saveProfileToCloud, loadLatestCloudProfile, loadCloudProfile } from './src/services/cloudProfiles';
@@ -238,7 +238,14 @@ export default function App() {
       setCloudSaving(false);
       setCloudSaved(false);
     } catch (error) {
-      setStatusMessage(`Scan failed: ${String(error)}`);
+      // A build without the native module now refuses instead of silently
+      // fabricating a sample profile, so say plainly what is wrong and what
+      // the user needs — not "Scan failed: Error: ...".
+      if (error instanceof NativeCaptureUnavailableError) {
+        setStatusMessage(error.message);
+      } else {
+        setStatusMessage(`Scan failed: ${String(error)}`);
+      }
     } finally {
       setScanning(false);
     }
@@ -411,9 +418,19 @@ export default function App() {
               onSelectCloudProfile={handleSelectCloudProfile}
               onClearProfile={handleClearProfile}
               onRescan={async () => {
-                const profile = await buildProfile();
-                setCurrentProfile(profile);
-                await AsyncStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(profile));
+                // Same refusal as the main scan path — a re-scan after a
+                // restore must not quietly substitute fabricated data.
+                try {
+                  const profile = await buildProfile();
+                  setCurrentProfile(profile);
+                  await AsyncStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(profile));
+                } catch (error) {
+                  setStatusMessage(
+                    error instanceof NativeCaptureUnavailableError
+                      ? error.message
+                      : `Re-scan failed: ${String(error)}`,
+                  );
+                }
               }}
             />
           )}

@@ -9,6 +9,10 @@ import * as LegacyFileSystem from 'expo-file-system/legacy';
 import { File, Directory, Paths } from 'expo-file-system/next';
 import * as Sharing from 'expo-sharing';
 import type { DeviceProfile } from '../types/profile';
+import {
+  assertImportSizeOk,
+  validateAndMigrateProfile,
+} from './profileValidation';
 
 /** Profiles directory inside the app's document dir */
 const profilesDir = new Directory(Paths.document, 'profiles');
@@ -78,27 +82,35 @@ export function listSavedProfiles(): SavedProfileInfo[] {
     if (!(item instanceof File) || !item.name.endsWith('.json')) continue;
 
     try {
-      // File.text() is synchronous in expo-file-system/next but TS types say Promise
-      const content = item.text() as string;
-      const parsed = JSON.parse(content);
+      // textSync() is the synchronous read. The previous code called the
+      // async text() and cast the Promise to string, so JSON.parse always
+      // received "[object Promise]" and threw straight into the empty catch
+      // below — every saved profile was silently skipped.
+      const content = item.textSync();
+      assertImportSizeOk(content);
+      const parsed: unknown = JSON.parse(content);
 
-      if (parsed.device && parsed.settings) {
-        profiles.push({
-          fileName: item.name,
-          filePath: item.uri,
-          deviceName: parsed.device.nickname || parsed.device.model || 'Unknown',
-          manufacturer: parsed.device.manufacturer || '',
-          exportedAt: parsed.exportedAt || '',
-          settingsCount:
-            Object.keys(parsed.settings.system || {}).length +
-            Object.keys(parsed.settings.secure || {}).length +
-            Object.keys(parsed.settings.global || {}).length +
-            Object.keys(parsed.settings.samsung || {}).length,
-          appsCount: parsed.apps?.installed?.length || 0,
-        });
-      }
+      // Validate before reading fields off it. The summary below is drawn
+      // from the VALIDATED profile, never from the raw parsed object, so a
+      // hostile file cannot put arbitrary values into the picker UI.
+      const profile = validateAndMigrateProfile(parsed);
+
+      profiles.push({
+        fileName: item.name,
+        filePath: item.uri,
+        deviceName: profile.device.nickname || profile.device.model || 'Unknown',
+        manufacturer: profile.device.manufacturer,
+        exportedAt: profile.exportedAt,
+        settingsCount:
+          Object.keys(profile.settings.system).length +
+          Object.keys(profile.settings.secure).length +
+          Object.keys(profile.settings.global).length +
+          Object.keys(profile.settings.samsung).length,
+        appsCount: profile.apps.installed.length,
+      });
     } catch {
-      // Skip malformed files
+      // Skip unreadable or malformed files — a bad file in the directory
+      // must not break the whole list.
     }
   }
 
@@ -122,9 +134,11 @@ export type SavedProfileInfo = {
  */
 export function loadProfileFromPath(filePath: string): DeviceProfile {
   const file = new File(filePath);
-  const content = file.text() as string;
-  const parsed = JSON.parse(content);
-  return validateAndMigrate(parsed);
+  // textSync(), not text(): see listSavedProfiles above.
+  const content = file.textSync();
+  assertImportSizeOk(content);
+  const parsed: unknown = JSON.parse(content);
+  return validateAndMigrateProfile(parsed);
 }
 
 /**
@@ -146,14 +160,18 @@ export async function importProfileFromUri(uri: string): Promise<DeviceProfile> 
     content = await LegacyFileSystem.readAsStringAsync(uri);
   }
 
-  let parsed: any;
+  // Bound the raw text BEFORE parsing: an oversized file must be refused
+  // without first materialising a multi-megabyte object graph.
+  assertImportSizeOk(content);
+
+  let parsed: unknown;
   try {
     parsed = JSON.parse(content);
   } catch {
     throw new Error('Invalid JSON file. Please select an AfterSwitch profile.');
   }
 
-  const profile = validateAndMigrate(parsed);
+  const profile = validateAndMigrateProfile(parsed);
 
   // Save a copy locally so it shows up in the saved profiles list
   saveProfileLocally(profile);
@@ -171,71 +189,5 @@ export function deleteSavedProfile(filePath: string): void {
   }
 }
 
-// ==================== Validation / Migration ====================
-
-function validateAndMigrate(data: any): DeviceProfile {
-  if (!data || typeof data !== 'object') {
-    throw new Error('Invalid profile: not an object.');
-  }
-
-  if (!data.device || !data.settings) {
-    throw new Error('Invalid profile: missing device or settings.');
-  }
-
-  if (data.schemaVersion === 1 || !data.schemaVersion) {
-    return migrateV1toV2(data);
-  }
-
-  if (data.schemaVersion === 2) {
-    return data as DeviceProfile;
-  }
-
-  throw new Error(`Unknown schema version: ${data.schemaVersion}`);
-}
-
-function migrateV1toV2(v1: any): DeviceProfile {
-  const defaults: Record<string, { packageName: string; label: string } | null> = {};
-  if (v1.defaults) {
-    for (const [key, value] of Object.entries(v1.defaults)) {
-      if (typeof value === 'string') {
-        defaults[key] = { packageName: '', label: value as string };
-      } else if (value && typeof value === 'object') {
-        defaults[key] = value as { packageName: string; label: string };
-      }
-    }
-  }
-
-  const installed = Array.isArray(v1.apps?.installedPackages)
-    ? v1.apps.installedPackages.map((pkg: string) => ({
-        packageName: pkg,
-        label: pkg.split('.').pop() || pkg,
-        versionName: '',
-        isSystemApp: false,
-      }))
-    : v1.apps?.installed || [];
-
-  return {
-    schemaVersion: 2,
-    exportedAt: v1.exportedAt || new Date().toISOString(),
-    exportedBy: v1.exportedBy || 'AfterSwitch (migrated from v1)',
-    device: {
-      nickname: v1.device.nickname || v1.device.model || 'Unknown',
-      manufacturer: v1.device.manufacturer || 'Unknown',
-      brand: v1.device.brand || v1.device.manufacturer || 'Unknown',
-      model: v1.device.model || 'Unknown',
-      os: 'Android',
-      osVersion: v1.device.osVersion || '0',
-      sdkInt: v1.device.sdkInt || 0,
-      securityPatch: v1.device.securityPatch || '',
-      oneUiVersion: v1.device.oneUiVersion || null,
-    },
-    defaults,
-    settings: {
-      system: v1.settings?.system || {},
-      secure: v1.settings?.secure || {},
-      global: v1.settings?.global || {},
-      samsung: v1.settings?.samsung || {},
-    },
-    apps: { installed },
-  };
-}
+// Validation and v1->v2 migration now live in ./profileValidation, so the
+// untrusted-input boundary is one testable module instead of inline casts.

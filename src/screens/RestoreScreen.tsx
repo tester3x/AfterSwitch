@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { AppState, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SectionCard } from '../components/SectionCard';
 import { CloudProfileList } from '../components/CloudProfileList';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -50,6 +50,10 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
     savedCollapseState ?? { auto: true, secure: true, guided: true, apps: true }
   );
   const [restoring, setRestoring] = useState(false);
+  /** Restore All confirmation. Cancel/back/outside-tap are all no-ops. */
+  const [confirmVisible, setConfirmVisible] = useState(false);
+  /** Synchronous double-start latch; state alone updates too late. */
+  const restoreStartedRef = useRef(false);
   const [wizardActive, setWizardActive] = useState(false);
   const [appsShown, setAppsShown] = useState(20);
   const [companion, setCompanion] = useState<CompanionStatus>({ available: false });
@@ -181,8 +185,65 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
     }
   }, [handleRestoreSettingLocal]);
 
-  const handleRestoreAll = useCallback(async () => {
+  /**
+   * The plan shown in the confirmation. Computed from the same filters the
+   * restore itself uses, so the numbers cannot drift from what happens.
+   */
+  const restorePlan = useMemo(() => {
+    const selected = allRestorableDiffs.filter(
+      (d) =>
+        checkedSettings[d.key] &&
+        restoreStatuses[d.key] !== 'success' &&
+        restoreStatuses[d.key] !== 'failed',
+    );
+    // With the companion the writes go through shell privilege, so every
+    // selected item is attempted. Without it, only what this app may write.
+    const writable = (d: SettingDiff) => {
+      if (d.category === 'system' && !hasWriteSettings) return false;
+      if (d.category === 'secure' && !hasSecureSettings) return false;
+      if (d.category === 'global' && !hasSecureSettings) return false;
+      return true;
+    };
+    const automatic = companion.available ? selected : selected.filter(writable);
+    const blocked = companion.available ? [] : selected.filter((d) => !writable(d));
+    const guidedRemaining = comparison
+      ? comparison.settings.filter(
+          (d) =>
+            d.restoreType === 'guided' &&
+            !isJunkSetting(d.key) &&
+            restoreStatuses[d.key] !== 'success',
+        )
+      : [];
+    return {
+      automaticCount: automatic.length,
+      guidedCount: guidedRemaining.length,
+      skippedCount: blocked.length,
+    };
+  }, [
+    comparison, allRestorableDiffs, checkedSettings, restoreStatuses,
+    hasWriteSettings, hasSecureSettings, companion.available,
+  ]);
+
+  /**
+   * Opens the confirmation. Deliberately does NOT write anything — the only
+   * path to a write is performRestoreAll, called from the Confirm button.
+   * Restore All used to be wired straight to onPress with no confirmation
+   * at all: one tap began a device-wide, non-undoable settings write.
+   */
+  const requestRestoreAll = useCallback(() => {
     if (!comparison || restoring) return;
+    setConfirmVisible(true);
+  }, [comparison, restoring]);
+
+  const performRestoreAll = useCallback(async () => {
+    if (!comparison || restoring) return;
+    // Close first, then latch. Both guard against a second start: `restoring`
+    // is the state guard, restoreStartedRef is the synchronous one — React
+    // state updates are async, so two taps in the same tick would both see
+    // restoring === false.
+    setConfirmVisible(false);
+    if (restoreStartedRef.current) return;
+    restoreStartedRef.current = true;
     setRestoring(true);
 
     // Only restore settings that match the displayed count (allRestorableDiffs)
@@ -250,6 +311,7 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
     }
 
     setRestoring(false);
+    restoreStartedRef.current = false;
 
     // Re-scan device so comparison updates — restored settings drop out of diff list
     if (onRescan) {
@@ -348,6 +410,65 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
 
   return (
     <>
+      {/* Restore All confirmation.
+
+          Cancel is the safe path and is the only styled-default action.
+          onRequestClose (Android back) and the backdrop press both just
+          close — neither begins a restore. Confirm is the sole route to
+          performRestoreAll, and that function latches synchronously so a
+          double-tap cannot start two concurrent restores. */}
+      <Modal
+        visible={confirmVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirmVisible(false)}
+      >
+        <Pressable style={styles.confirmBackdrop} onPress={() => setConfirmVisible(false)}>
+          {/* Stop taps inside the sheet from dismissing it. */}
+          <Pressable style={styles.confirmSheet} onPress={() => {}}>
+            <Text style={styles.confirmTitle}>Restore settings to this phone?</Text>
+
+            <Text style={styles.confirmLine}>
+              <Text style={styles.confirmNum}>{restorePlan.automaticCount}</Text>
+              {' will be changed automatically'}
+            </Text>
+            <Text style={styles.confirmLine}>
+              <Text style={styles.confirmNum}>{restorePlan.guidedCount}</Text>
+              {' need you to change them by hand, guided step by step'}
+            </Text>
+            <Text style={styles.confirmLine}>
+              <Text style={styles.confirmNum}>{restorePlan.skippedCount}</Text>
+              {' will be skipped — this app cannot write them without extra permission'}
+            </Text>
+
+            <Text style={styles.confirmWarn}>
+              Results vary by Android version and phone model, so some settings
+              may not apply or may be overridden by the system.
+            </Text>
+            <Text style={styles.confirmWarn}>
+              There is no full automatic undo yet. Save or export a profile of
+              this phone first if you want a record of how it is now.
+            </Text>
+
+            <Pressable
+              style={styles.confirmCancel}
+              onPress={() => setConfirmVisible(false)}
+            >
+              <Text style={styles.confirmCancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.confirmGo, restoring && { opacity: 0.4 }]}
+              disabled={restoring}
+              onPress={performRestoreAll}
+            >
+              <Text style={styles.confirmGoText}>
+                {restoring ? 'Restoring...' : `Restore ${restorePlan.automaticCount} settings`}
+              </Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {/* Source profile info */}
       {importedProfile && (
         <SectionCard title="Restore Source">
@@ -419,7 +540,7 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
         {pendingRestorableCount > 0 && (
           <PrimaryButton
             label={restoring ? 'Restoring...' : `Restore ${pendingRestorableCount} Checked Settings`}
-            onPress={handleRestoreAll}
+            onPress={requestRestoreAll}
           />
         )}
         {pendingRestorableCount === 0 && (successCount > 0 || failedCount > 0 || notApplicableCount > 0) && (
@@ -956,6 +1077,16 @@ function AppRestoreRow({
 }
 
 const styles = StyleSheet.create({
+  confirmBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', padding: 20 },
+  confirmSheet: { backgroundColor: '#141922', borderRadius: 14, padding: 20, borderWidth: 1, borderColor: '#2a3245' },
+  confirmTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 14 },
+  confirmLine: { color: '#d7dbe3', fontSize: 14, lineHeight: 21, marginBottom: 6 },
+  confirmNum: { color: '#e6b800', fontWeight: '700' },
+  confirmWarn: { color: '#9aa2b1', fontSize: 12.5, lineHeight: 18, marginTop: 10 },
+  confirmCancel: { marginTop: 18, paddingVertical: 13, borderRadius: 10, borderWidth: 1, borderColor: '#3a4257', alignItems: 'center' },
+  confirmCancelText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  confirmGo: { marginTop: 10, paddingVertical: 13, borderRadius: 10, alignItems: 'center', backgroundColor: '#2a3245' },
+  confirmGoText: { color: '#e6b800', fontSize: 15, fontWeight: '600' },
   emptyText: {
     color: '#8090b0',
     fontSize: 14,
