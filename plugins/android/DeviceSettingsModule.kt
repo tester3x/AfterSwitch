@@ -344,17 +344,24 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
     // below reports the first separately rather than assuming it.
 
     /** Ordered. Index N cannot run until index N-1 restored and verified. */
+    /**
+     * Distinguishes THIS build from the twelve-key one. The marker scanner
+     * requires it, so an older artifact -- which cannot contain it -- fails
+     * the gate instead of quietly passing because its superset of keys
+     * happens to satisfy a two-key requirement.
+     */
+    private val MATRIX_BUILD_TAG = "afterswitch-matrix-round2"
+
+    /**
+     * ROUND 2. Only the two mutations the first run never reached.
+     *
+     * Keys 1-10 were completed and accepted from build 56a2b326, each with a
+     * changed value, a fresh-read confirmation, an exact restoration and a
+     * second fresh read. They are deliberately ABSENT here rather than
+     * disabled: a key that is not in this list cannot be run at all, by any
+     * path, so there is no way to repeat them by accident.
+     */
     private val MATRIX_ORDER = listOf(
-        "system.sound_effects_enabled",
-        "system.haptic_feedback_enabled",
-        "system.accelerometer_rotation",
-        "system.screen_brightness_mode",
-        "system.screen_off_timeout",
-        "system.volume_music",
-        "system.volume_notification",
-        "system.volume_ring",
-        "system.volume_alarm",
-        "secure.show_ime_with_hard_keyboard",
         "global.transition_animation_scale",
         // LAST ON PURPOSE. A font_scale write is a configuration change: the
         // activity is destroyed and recreated under the running round trip.
@@ -729,6 +736,12 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
     @ReactMethod
     fun matrixNextAllowedIndex(promise: Promise) {
         promise.resolve(matrixNextIndex)
+    }
+
+    /** Which matrix build this is. Identity only -- never a setting value. */
+    @ReactMethod
+    fun matrixBuildTag(promise: Promise) {
+        promise.resolve(MATRIX_BUILD_TAG)
     }
     // ======= END TEMPORARY EXPERIMENT ====================================
 

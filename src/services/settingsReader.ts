@@ -187,18 +187,16 @@ export async function writeGlobalSetting(key: string, value: string): Promise<Na
 // own lists, and the domains they exercise are deliberately the same ones
 // the production validator enforces.
 
-/** Ordered. Index N stays disabled until index N-1 is restored and verified. */
+/**
+ * ROUND 2. Ordered. Index N stays disabled until index N-1 is restored and
+ * verified.
+ *
+ * Keys 1-10 were completed and accepted from build 56a2b326 and are
+ * deliberately ABSENT rather than disabled — a key not in this list cannot be
+ * run at all, so there is no way to repeat one by accident. The native list
+ * mirrors this exactly, asserted by test.
+ */
 export const MATRIX_ORDER = [
-  'system.sound_effects_enabled',
-  'system.haptic_feedback_enabled',
-  'system.accelerometer_rotation',
-  'system.screen_brightness_mode',
-  'system.screen_off_timeout',
-  'system.volume_music',
-  'system.volume_notification',
-  'system.volume_ring',
-  'system.volume_alarm',
-  'secure.show_ime_with_hard_keyboard',
   'global.transition_animation_scale',
   // LAST. A font_scale write is a configuration change and the activity is
   // destroyed and recreated under the running test — the manifest's
@@ -207,6 +205,12 @@ export const MATRIX_ORDER = [
   // mutation, so neither recreation nor process death can strand it.
   'system.font_scale',
 ] as const;
+
+/** Identity of this diagnostic build. Never a setting value. */
+export async function matrixBuildTag(): Promise<string> {
+  if (!isNativeModuleAvailable()) return '';
+  return await DeviceSettings.matrixBuildTag();
+}
 
 /** Non-mutating only. Never written, in any circumstance. */
 export const MATRIX_PROBES = [

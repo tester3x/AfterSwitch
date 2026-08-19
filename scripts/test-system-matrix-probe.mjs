@@ -47,15 +47,23 @@ const TRIP = ktFun('matrixRoundTrip');
 const PROBE = ktFun('matrixProbePresence');
 const RECOVER = ktFun('matrixRecoverPendingRollback');
 
-const ROUND_TRIP_KEYS = [
+/**
+ * ROUND 2 — only the two mutations the first run never reached.
+ *
+ * Keys 1-10 were completed and accepted from build 56a2b326. They must be
+ * ABSENT from this build, not merely disabled, and the assertions below check
+ * for their absence explicitly rather than only checking what is present.
+ */
+const ROUND_TRIP_KEYS = ['global.transition_animation_scale', 'system.font_scale'];
+const PROBE_KEYS = ['secure.spell_checker_enabled', 'global.animator_duration_scale'];
+
+/** Accepted in round 1; running any of them again would be a defect. */
+const ALREADY_PROVEN = [
   'system.sound_effects_enabled', 'system.haptic_feedback_enabled',
   'system.accelerometer_rotation', 'system.screen_brightness_mode',
   'system.screen_off_timeout', 'system.volume_music', 'system.volume_notification',
-  'system.volume_ring', 'system.volume_alarm',
-  'secure.show_ime_with_hard_keyboard', 'global.transition_animation_scale',
-  'system.font_scale',
+  'system.volume_ring', 'system.volume_alarm', 'secure.show_ime_with_hard_keyboard',
 ];
-const PROBE_KEYS = ['secure.spell_checker_enabled', 'global.animator_duration_scale'];
 
 // ── 1. The archive must contain the canonical source ──────────────────────
 // This is the check that would have caught the 18130fdd build, which
@@ -89,20 +97,32 @@ const PROBE_KEYS = ['secure.spell_checker_enabled', 'global.animator_duration_sc
   check('the native round-trip order exists', /MATRIX_ORDER = listOf\(/.test(kt));
   const orderBlock = (kt.match(/MATRIX_ORDER = listOf\(([\s\S]*?)\n    \)/) || ['', ''])[1];
   const ktOrder = [...orderBlock.matchAll(/"([a-z]+\.[a-z0-9_]+)"/g)].map((m) => m[1]);
-  check('the native order is exactly the twelve authorised keys',
-    ktOrder.length === 12 && ktOrder.join('|') === ROUND_TRIP_KEYS.join('|'),
+  check('the native order is exactly the two remaining keys',
+    ktOrder.length === 2 && ktOrder.join('|') === ROUND_TRIP_KEYS.join('|'),
     ktOrder.join(', '));
   check('font_scale is LAST, because its write recreates the activity',
     ktOrder[ktOrder.length - 1] === 'system.font_scale');
-  check('ten system keys, one secure, one global',
-    ktOrder.filter((k) => k.startsWith('system.')).length === 10 &&
-    ktOrder.filter((k) => k.startsWith('secure.')).length === 1 &&
-    ktOrder.filter((k) => k.startsWith('global.')).length === 1);
+  check('one global, one system',
+    ktOrder.filter((k) => k.startsWith('global.')).length === 1 &&
+    ktOrder.filter((k) => k.startsWith('system.')).length === 1);
+
+  check('this build carries a distinguishing tag an older artifact cannot have',
+    /MATRIX_BUILD_TAG = "afterswitch-matrix-round2"/.test(kt) &&
+    /fun matrixBuildTag\(/.test(kt));
 
   const probeBlock = (kt.match(/MATRIX_PROBES = listOf\(([\s\S]*?)\n    \)/) || ['', ''])[1];
   const ktProbes = [...probeBlock.matchAll(/"([a-z]+\.[a-z0-9_]+)"/g)].map((m) => m[1]);
   check('the native probe list is exactly the two absent keys',
     ktProbes.join('|') === PROBE_KEYS.join('|'), ktProbes.join(', '));
+
+  // The ten accepted keys must be UNREACHABLE, not merely unlisted in the UI.
+  const reachable = ALREADY_PROVEN.filter((k) => ktOrder.includes(k) || ktProbes.includes(k));
+  check('no already-proven key can be run again',
+    reachable.length === 0, reachable.join(', '));
+  const jsAll = reader.match(/MATRIX_ORDER = \[([\s\S]*?)\n\] as const/)?.[1] ?? '';
+  const jsReachable = ALREADY_PROVEN.filter((k) => jsAll.includes(`'${k}'`));
+  check('no already-proven key is reachable from the JS bridge either',
+    jsReachable.length === 0, jsReachable.join(', '));
 
   const jsOrder = (reader.match(/MATRIX_ORDER = \[([\s\S]*?)\n\] as const/) || ['', ''])[1];
   const jsKeys = [...jsOrder.matchAll(/'([a-z]+\.[a-z0-9_]+)'/g)].map((m) => m[1]);
