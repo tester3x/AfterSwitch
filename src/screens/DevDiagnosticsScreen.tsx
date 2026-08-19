@@ -7,8 +7,14 @@
  * a provider may accept a no-op trivially — and no result from this screen
  * promotes anything on its own.
  *
- * Twelve changed-value round trips, run strictly one at a time and in order.
- * Two non-mutating probes that never write.
+ * Two changed-value round trips, run strictly one at a time and in order,
+ * plus two non-mutating probes that never write. The other ten keys were
+ * proven in an earlier build and are not present here at all.
+ *
+ * Results are DURABLE. They are written to private storage when the native
+ * call reaches its final verified outcome and re-read on launch, because a
+ * font_scale write recreates the activity and would otherwise erase the one
+ * result whose recreation was expected.
  *
  * ISOLATION IS STRUCTURAL, NOT FLAG-BASED. This deliberately does not gate on
  * a development flag: an EAS internal APK is a release-style bundle where
@@ -27,7 +33,9 @@ import {
   canWriteSystemSettings,
   matrixNextAllowedIndex,
   matrixProbePresence,
+  matrixPersistedResults,
   matrixRecoverPendingRollback,
+  matrixResetResults,
   matrixRoundTrip,
   type MatrixProbeResult,
   type MatrixRecoveryResult,
@@ -86,6 +94,9 @@ function DevDiagnosticsLive() {
   const [tripResults, setTripResults] = useState<Record<string, MatrixRoundTripResult>>({});
   const [probeResults, setProbeResults] = useState<Record<string, MatrixProbeResult>>({});
   const [running, setRunning] = useState<string | null>(null);
+  /** Restoration failure latched in durable storage, survives a restart. */
+  const [persistedBlocked, setPersistedBlocked] = useState(false);
+  const [resetOutcome, setResetOutcome] = useState<string | null>(null);
   /** Synchronous latch — state updates too late to stop a double tap. */
   const inFlight = useRef(false);
 
@@ -100,9 +111,53 @@ function DevDiagnosticsLive() {
       setRecovery(r);
       setCanSystem(await canWriteSystemSettings().catch(() => false));
       setCanSecure(await canWriteSecureSettings().catch(() => false));
+
+      // Read the DURABLE results alongside the ordering index. Both survive
+      // an activity recreation; React state does not. Without this, the one
+      // key whose recreation is expected — font_scale — is the one key whose
+      // outcome vanishes the moment it produces one.
+      const persisted = await matrixPersistedResults().catch(
+        () => ({} as Record<string, string | boolean>),
+      );
+      if (cancelled) return;
+      const restored: Record<string, MatrixRoundTripResult> = {};
+      const restoredProbes: Record<string, MatrixProbeResult> = {};
+      for (const k of Object.keys(persisted)) {
+        if (k === 'blocked') continue;
+        const v = persisted[k];
+        if (typeof v !== 'string') continue;
+        if ((MATRIX_PROBES as readonly string[]).includes(k)) {
+          restoredProbes[k] = v as MatrixProbeResult;
+        } else {
+          restored[k] = v as MatrixRoundTripResult;
+        }
+      }
+      setTripResults(restored);
+      setProbeResults(restoredProbes);
+      setPersistedBlocked(persisted.blocked === true);
       setNextIndex(await matrixNextAllowedIndex().catch(() => 0));
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  /**
+   * The explicit new-test path, and the only thing that clears results.
+   * Native refuses while a rollback is pending or a failure is latched.
+   */
+  const resetResults = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    try {
+      const r = await matrixResetResults().catch(() => 'error' as const);
+      if (r === 'reset') {
+        setTripResults({});
+        setProbeResults({});
+        setNextIndex(0);
+      }
+      setResetOutcome(r);
+    } finally {
+      inFlight.current = false;
+    }
   }, []);
 
   const runTrip = useCallback(async (fullKey: string) => {
@@ -143,13 +198,13 @@ function DevDiagnosticsLive() {
 
   const recoveryClean =
     recovery === 'no_pending_rollback' || recovery === 'pending_rollback_restored';
-  const blocked = Object.keys(tripResults).some(
+  const blocked = persistedBlocked || Object.keys(tripResults).some(
     (k) => tripResults[k] === 'restore_failed_stop_immediately',
   );
 
   return (
     <>
-      <SectionCard title="System-write matrix" subtitle="Twelve round trips, two probes">
+      <SectionCard title="System-write matrix" subtitle="Two round trips, two probes">
         <Text style={styles.body}>
           Each round trip changes one setting, checks the change took, puts the
           exact original back, and checks that too. No value is ever displayed.
@@ -176,6 +231,38 @@ function DevDiagnosticsLive() {
           <Text style={styles.stop}>{RECOVERY_TEXT[recovery]}</Text>
         </SectionCard>
       )}
+
+      <SectionCard title="Results are durable" subtitle="They survive an activity recreation">
+        <Text style={styles.body}>
+          Each coarse result is written to this app's private storage once the
+          native call reaches its final verified outcome, and read back on
+          launch. Only the result CODE is stored — never a setting value.
+          A font_scale write recreates the activity and wipes the on-screen
+          state; these labels survive it.
+        </Text>
+        <View style={styles.row}>
+          <Pressable
+            style={[styles.btn, running !== null && styles.btnOff]}
+            disabled={running !== null}
+            onPress={resetResults}
+          >
+            <Text style={styles.btnText}>Start a new test run (clears results)</Text>
+          </Pressable>
+          {resetOutcome === 'reset' && (
+            <Text style={styles.result}>Results cleared. The order restarts at key 1.</Text>
+          )}
+          {resetOutcome === 'refused_pending' && (
+            <Text style={styles.stop}>
+              REFUSED. A rollback is pending or a restoration failure is
+              latched. Clearing now would erase the record that something
+              still needs finishing.
+            </Text>
+          )}
+          {resetOutcome === 'error' && (
+            <Text style={styles.result}>Reset refused. Nothing was cleared.</Text>
+          )}
+        </View>
+      </SectionCard>
 
       {blocked && (
         <SectionCard title="Stopped" subtitle="Restoration could not be verified">

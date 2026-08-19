@@ -212,6 +212,37 @@ export async function matrixBuildTag(): Promise<string> {
   return await DeviceSettings.matrixBuildTag();
 }
 
+/**
+ * Coarse results that survive an activity recreation.
+ *
+ * system.font_scale writes a configuration change, so the activity is
+ * destroyed and recreated under the running round trip. The native call is
+ * unaffected — it finishes, restores, and clears the journal — but the
+ * RESULT used to live only in React state, so the remount wiped it. The one
+ * key whose recreation was anticipated was the one key whose outcome could
+ * not be read back. The journal had durability; the evidence did not.
+ *
+ * Keys are `ns.key`; values are coarse codes only, never a setting value.
+ * `blocked` is a boolean latch for a restoration failure that must outlive a
+ * process restart.
+ */
+export type MatrixPersistedResults = Record<string, string | boolean>;
+
+export async function matrixPersistedResults(): Promise<MatrixPersistedResults> {
+  if (!isNativeModuleAvailable()) return {};
+  return await DeviceSettings.matrixPersistedResults();
+}
+
+/**
+ * The ONLY path that clears results. Refuses while a rollback is pending or
+ * a restoration failure is latched — clearing then would erase the record
+ * that something still needs finishing.
+ */
+export async function matrixResetResults(): Promise<'reset' | 'refused_pending' | 'error'> {
+  if (!isNativeModuleAvailable()) return 'error';
+  return await DeviceSettings.matrixResetResults();
+}
+
 /** Non-mutating only. Never written, in any circumstance. */
 export const MATRIX_PROBES = [
   'secure.spell_checker_enabled',

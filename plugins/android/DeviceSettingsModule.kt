@@ -496,7 +496,11 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
         var key = ""
 
         try {
-            if (matrixRestorationFailed || matrixJournalFile.exists()) {
+            // Three independent reasons to refuse, and the third is why the
+            // results file carries a `blocked` flag at all: the in-memory
+            // latch dies with the process, and a restoration failure must
+            // outlive a restart rather than being forgotten by one.
+            if (matrixRestorationFailed || matrixJournalFile.exists() || matrixBlockedPersisted()) {
                 outcome = "restore_failed_stop_immediately"
                 return
             }
@@ -589,7 +593,21 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
                 }
             }
 
-            promise.resolve(outcome ?: "error")
+            // PERSIST HERE AND NOWHERE ELSE. This is the point at which the
+            // native method has reached its final verified outcome: the
+            // restoration has been attempted and checked, the journal has been
+            // cleared or deliberately kept, and `outcome` will not change
+            // again. Persisting any earlier would record a label the run had
+            // not yet earned.
+            //
+            // 'out_of_order' and 'error' are not recorded: neither is a
+            // statement about the key, only about the request.
+            val finalOutcome = outcome ?: "error"
+            if (finalOutcome != "out_of_order" && finalOutcome != "error") {
+                matrixPersistResult(fullKey, finalOutcome)
+            }
+
+            promise.resolve(finalOutcome)
             matrixInFlight.set(false)
         }
     }
@@ -616,6 +634,7 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
             val key = fullKey.substring(cut + 1)
 
             if (matrixRead(namespace, key) != null) {
+                matrixPersistResult(fullKey, "present_row")
                 promise.resolve("present_row")
                 return
             }
@@ -640,10 +659,11 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
             for (f in cls.declaredFields) {
                 if (f.name == wanted) { declared = true; break }
             }
-            promise.resolve(
+            val probeOutcome =
                 if (declared) "absent_key_in_public_sdk"
                 else "absent_key_not_in_public_sdk"
-            )
+            matrixPersistResult(fullKey, probeOutcome)
+            promise.resolve(probeOutcome)
         } catch (e: Exception) {
             promise.resolve("error")
         }
@@ -711,13 +731,138 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
     /** Presence only -- never the namespace, key, or value. */
     @ReactMethod
     fun matrixRollbackPending(promise: Promise) {
-        promise.resolve(matrixJournalFile.exists() || matrixRestorationFailed)
+        promise.resolve(
+            matrixJournalFile.exists() || matrixRestorationFailed || matrixBlockedPersisted()
+        )
     }
 
     /** Index of the next key permitted to run. Ordering state, not a value. */
     @ReactMethod
     fun matrixNextAllowedIndex(promise: Promise) {
         promise.resolve(matrixNextIndex)
+    }
+
+    // ---- durable coarse-result store ------------------------------------
+    //
+    // WHY THIS EXISTS
+    //
+    // system.font_scale writes a configuration change, so Android destroys and
+    // recreates the activity underneath the running round trip. The native
+    // call is unaffected -- it finishes on the bridge thread, restores the
+    // original and clears the journal. What did NOT survive was the RESULT:
+    // it lived only in React state, so the remount wiped it.
+    //
+    // The consequence was absurd in hindsight. The one key whose recreation
+    // was anticipated, and whose journal was specifically built to survive it,
+    // was the one key whose outcome could not be read back afterwards. The
+    // journal got durability; the evidence did not.
+    //
+    // ONLY the coarse result CODE is stored. No setting value, no original,
+    // no alternate -- the write below refuses anything that is not one of the
+    // known codes, so a value cannot reach this file even by mistake.
+    private val MATRIX_RESULTS = "afterswitch-matrix-results.json"
+
+    private val matrixResultsFile: java.io.File
+        get() = java.io.File(reactContext.filesDir, MATRIX_RESULTS)
+
+    /** The only strings that may ever be persisted. */
+    private val MATRIX_RESULT_CODES = setOf(
+        "round_trip_succeeded",
+        "key_not_present",
+        "change_write_failed_original_intact",
+        "change_not_persisted_original_restored",
+        "restore_succeeded_after_test_failure",
+        "restore_failed_stop_immediately",
+        "permission_missing",
+        "unsupported_value",
+        "present_row",
+        "absent_key_in_public_sdk",
+        "absent_key_not_in_public_sdk"
+    )
+
+    private fun matrixReadResults(): org.json.JSONObject =
+        if (!matrixResultsFile.exists()) org.json.JSONObject()
+        else try {
+            org.json.JSONObject(matrixResultsFile.readText(Charsets.UTF_8))
+        } catch (e: Exception) {
+            org.json.JSONObject()
+        }
+
+    /** True once a restoration failure has been recorded, across restarts. */
+    private fun matrixBlockedPersisted(): Boolean =
+        matrixReadResults().optBoolean("blocked", false)
+
+    /**
+     * Record one coarse outcome. Called ONLY from the finally path, after the
+     * native method has reached its final verified outcome -- never
+     * speculatively, and never before the restoration has been checked.
+     *
+     * A latched restoration failure is permanent: once `blocked` is set,
+     * nothing further is written, so a later result cannot paper over it.
+     */
+    private fun matrixPersistResult(fullKey: String, outcome: String) {
+        if (!MATRIX_RESULT_CODES.contains(outcome)) return
+        try {
+            val obj = matrixReadResults()
+            if (obj.optBoolean("blocked", false)) return
+            obj.put(fullKey, outcome)
+            if (outcome == "restore_failed_stop_immediately") obj.put("blocked", true)
+            val bytes = obj.toString().toByteArray(Charsets.UTF_8)
+            java.io.FileOutputStream(matrixResultsFile).use { out ->
+                out.write(bytes)
+                out.flush()
+                out.channel.force(true)
+            }
+        } catch (e: Exception) {
+            // A result we could not persist is a lost label, not a hazard.
+            // The journal, not this file, is what protects the setting.
+        }
+    }
+
+    /** Coarse codes only. Read on mount alongside the ordering index. */
+    @ReactMethod
+    fun matrixPersistedResults(promise: Promise) {
+        try {
+            val obj = matrixReadResults()
+            val map = Arguments.createMap()
+            val it = obj.keys()
+            while (it.hasNext()) {
+                val k = it.next()
+                if (k == "blocked") {
+                    map.putBoolean("blocked", obj.optBoolean("blocked", false))
+                } else {
+                    val v = obj.optString(k)
+                    // Defence in depth: refuse to hand back anything that is
+                    // not a known code, even if the file were tampered with.
+                    if (MATRIX_RESULT_CODES.contains(v)) map.putString(k, v)
+                }
+            }
+            promise.resolve(map)
+        } catch (e: Exception) {
+            promise.resolve(Arguments.createMap())
+        }
+    }
+
+    /**
+     * The ONLY path that clears results. Explicit new-test/reset action.
+     *
+     * Refuses while a rollback is pending or a restoration failure is
+     * latched: clearing then would erase the record that something still
+     * needs finishing, which is exactly when the record matters most.
+     */
+    @ReactMethod
+    fun matrixResetResults(promise: Promise) {
+        try {
+            if (matrixJournalFile.exists() || matrixRestorationFailed || matrixBlockedPersisted()) {
+                promise.resolve("refused_pending")
+                return
+            }
+            matrixResultsFile.delete()
+            matrixNextIndex = 0
+            promise.resolve("reset")
+        } catch (e: Exception) {
+            promise.resolve("error")
+        }
     }
 
     /** Which matrix build this is. Identity only -- never a setting value. */

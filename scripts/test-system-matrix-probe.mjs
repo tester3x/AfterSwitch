@@ -281,11 +281,26 @@ const ALREADY_PROVEN = [
     'change_write_failed_original_intact', 'change_not_persisted_original_restored',
     'restore_succeeded_after_test_failure', 'restore_failed_stop_immediately',
     'permission_missing', 'unsupported_value', 'out_of_order', 'error'];
+  // The final resolve now goes through a variable, so the assertion follows
+  // the variable rather than only accepting literals: `finalOutcome` must be
+  // derived from `outcome`, and EVERY assignment to `outcome` must be a
+  // coarse literal. That is stronger than pattern-matching the resolve line,
+  // because it closes the path where a value could be assigned upstream.
   const resolves = (TRIP || '').match(/promise\.resolve\(([^)]*)\)/g) || [];
-  check('every round-trip resolve is a coarse status, never a value',
+  check('every round-trip resolve is a coarse status or the derived outcome',
     resolves.length > 0 &&
-    resolves.every((r) => COARSE.some((c) => r.includes(`"${c}"`)) || /outcome \?: "error"/.test(r)),
+    resolves.every((r) => COARSE.some((c) => r.includes(`"${c}"`)) || /finalOutcome/.test(r)),
     resolves.join(' | '));
+  check('the derived outcome comes from the coarse variable, not a value',
+    /val finalOutcome = outcome \?: "error"/.test(TRIP || ''));
+  {
+    const assigns = (TRIP || '').match(/outcome = [^\n]+/g) || [];
+    const nonLiteral = assigns.filter(
+      (a) => !/outcome = "(\w+)"/.test(a) && !/outcome = if \(/.test(a) && !/outcome = null/.test(a),
+    );
+    check('every assignment to outcome is a coarse literal',
+      nonLiteral.length === 0, nonLiteral.join(' | '));
+  }
   check('the harness logs nothing',
     !/Log\.|println/.test(TRIP || '') && !/Log\.|println/.test(PROBE || '') &&
     !/Log\.|println/.test(RECOVER || ''));
@@ -397,6 +412,108 @@ const ALREADY_PROVEN = [
   check('the Kotlin implements the safe order the model requires',
     t.indexOf('matrixWriteJournal(namespace, key, current, "pending")') <
     t.indexOf('matrixWrite(namespace, key, alternate)'));
+}
+
+// ── 11b. Durable coarse results survive activity recreation ──────────────
+{
+  const persist = ktFun('matrixPersistResult');
+  const readFn = ktFun('matrixReadResults');
+  const reset = ktFun('matrixResetResults');
+
+  check('a durable result store exists', persist !== null && readFn !== null);
+  check('only coarse CODES may be persisted -- never a setting value',
+    /if \(!MATRIX_RESULT_CODES\.contains\(outcome\)\) return/.test(persist || '') &&
+    /private val MATRIX_RESULT_CODES = setOf\(/.test(kt));
+  check('the result store holds no value-shaped field',
+    !/put\("original"|put\("value"|put\("alternate"/.test(persist || ''));
+  check('the store is forced to disk',
+    /out\.flush\(\)/.test(persist || '') && /out\.channel\.force\(true\)/.test(persist || ''));
+  check('results are read back on mount alongside nextIndex',
+    /await matrixPersistedResults\(\)/.test(dev) &&
+    dev.indexOf('matrixPersistedResults()') < dev.indexOf('matrixNextAllowedIndex()'));
+  check('the reader refuses to hand back an unknown code',
+    /if \(MATRIX_RESULT_CODES\.contains\(v\)\) map\.putString/.test(kt));
+
+  // Persisted ONLY at the final verified outcome.
+  const t = TRIP || '';
+  const iFinally = t.indexOf('} finally {');
+  check('a result is persisted only from the finally path',
+    t.indexOf('matrixPersistResult(') > iFinally && iFinally > 0);
+  check('the persist call sits AFTER the restoration check',
+    t.indexOf('matrixPersistResult(') > t.indexOf('if (!restoreOk)'));
+  check('a non-terminal request outcome is never persisted',
+    /finalOutcome != "out_of_order" && finalOutcome != "error"/.test(t));
+
+  // The failure latch is permanent and survives a restart.
+  check('a restoration failure latches in durable storage',
+    /if \(outcome == "restore_failed_stop_immediately"\) obj\.put\("blocked", true\)/.test(persist || ''));
+  check('a later result cannot overwrite a latched failure',
+    /if \(obj\.optBoolean\("blocked", false\)\) return/.test(persist || ''));
+  check('the latch is consulted across process restarts',
+    /matrixRestorationFailed \|\| matrixJournalFile\.exists\(\) \|\| matrixBlockedPersisted\(\)/.test(t));
+  check('the UI honours the durable latch, not only the in-session one',
+    /const blocked = persistedBlocked \|\| /.test(dev));
+
+  // Clearing is an explicit, guarded path.
+  check('results clear ONLY through an explicit reset method',
+    reset !== null && /matrixResultsFile\.delete\(\)/.test(reset) &&
+    (kt.match(/matrixResultsFile\.delete\(\)/g) || []).length === 1);
+  check('reset refuses while a rollback is pending or a failure is latched',
+    /if \(matrixJournalFile\.exists\(\) \|\| matrixRestorationFailed \|\| matrixBlockedPersisted\(\)\)/.test(reset || '') &&
+    /refused_pending/.test(reset || ''));
+  check('the reset control is explicit in the UI',
+    /Start a new test run \(clears results\)/.test(dev));
+
+  // ---- EXECUTABLE MODEL -------------------------------------------------
+  // Activity destruction BETWEEN the native mutation and Promise delivery.
+  // This is the exact sequence that erased the font_scale result: the native
+  // call completes, but the React tree that would have rendered the outcome
+  // is gone by the time (or before) the promise lands.
+  {
+    /** @param killAt 'after_mutate' | 'after_restore' | 'after_resolve' */
+    function run(killAt) {
+      const world = { setting: 'ORIG', journal: null, store: {}, ui: {}, mounted: true };
+      // native, on the bridge thread -- unaffected by activity lifecycle
+      world.journal = { original: world.setting, state: 'pending' };
+      world.setting = 'ALT';
+      if (killAt === 'after_mutate') world.mounted = false;
+      world.setting = world.journal.original;
+      const restoreOk = world.setting === world.journal.original;
+      if (killAt === 'after_restore') world.mounted = false;
+      const outcome = restoreOk ? 'round_trip_succeeded' : 'restore_failed_stop_immediately';
+      // persist at the FINAL verified outcome, before delivery
+      world.store[KEY] = outcome;
+      if (!restoreOk) world.store.blocked = true;
+      world.journal = null;
+      if (killAt === 'after_resolve') world.mounted = false;
+      // promise delivery -- a no-op when the tree is gone
+      if (world.mounted) world.ui[KEY] = outcome;
+      return world;
+    }
+    const KEY = 'system.font_scale';
+    const remount = (w) => { w.ui = { ...w.store }; w.mounted = true; return w; };
+
+    let lost = [];
+    for (const killAt of ['after_mutate', 'after_restore', 'after_resolve']) {
+      const w = run(killAt);
+      if (w.ui[KEY] !== undefined) continue;      // survived in-session
+      const after = remount(w);                   // the app is reopened
+      if (after.ui[KEY] !== 'round_trip_succeeded') lost.push(killAt);
+    }
+    check('MODEL: the result survives activity destruction at every point',
+      lost.length === 0, `label lost when killed ${lost.join(', ')}`);
+
+    // And the old behaviour -- result only in UI state -- loses it.
+    function runWithoutStore(killAt) {
+      const w = { ui: {}, mounted: true };
+      if (killAt === 'after_mutate') w.mounted = false;
+      if (w.mounted) w.ui['system.font_scale'] = 'round_trip_succeeded';
+      return w;
+    }
+    const old = runWithoutStore('after_mutate');
+    check('MODEL: without the store the label is lost, which is the defect fixed',
+      old.ui['system.font_scale'] === undefined);
+  }
 }
 
 // ── 12. Isolation: the diagnostic build cannot reach production ───────────
