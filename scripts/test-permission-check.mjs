@@ -37,8 +37,22 @@ function ktFun(src, name) {
   return src.slice(open, j + 1);
 }
 
+// The inline Kotlin fallback has been DELETED. It existed so a build could
+// proceed when plugins/android/ was missing from the archive — which is
+// exactly what happened, silently, in the 18130fdd build: the plugin compiled
+// a stale hand-maintained copy and shipped an APK without a native method the
+// bridge calls. The plugin now throws instead of substituting.
+//
+// So the loop below no longer covers a second copy, and these two assertions
+// replace the divergence guard with the stronger property: there is nothing
+// left to diverge.
+check('no inline Kotlin fallback constant survives',
+  !/const DEVICE_SETTINGS_(MODULE|PACKAGE)_KT\s*=/.test(INLINE));
+check('the plugin fails the build rather than substituting Kotlin',
+  /missingSrc\.length > 0/.test(INLINE) && /throw new Error\(/.test(INLINE));
+
 // The capability check must never write.
-for (const [label, src] of [['authoritative Kotlin', KT], ['inline fallback', INLINE]]) {
+for (const [label, src] of [['authoritative Kotlin', KT]]) {
   const fn = ktFun(src, 'canWriteSecureSettings');
   check(`${label}: capability check exists`, fn !== null);
   check(`${label}: capability check performs NO write`,

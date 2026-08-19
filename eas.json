@@ -17,6 +17,17 @@
       "android": {
         "buildType": "apk"
       }
+    },
+    "diagnostic-apk": {
+      "distribution": "internal",
+      "developmentClient": false,
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
+      },
+      "env": {
+        "AFTERSWITCH_DIAG": "1"
+      }
     }
   }
 }

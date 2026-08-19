@@ -180,6 +180,106 @@ export async function writeGlobalSetting(key: string, value: string): Promise<Na
   }
 }
 
+// ====== TEMPORARY EXPERIMENT — system-write matrix ========================
+//
+// Nothing here touches the production restore path. The production allowlist
+// in src/data/restoreAllowlist.ts is unchanged; these are the experiment's
+// own lists, and the domains they exercise are deliberately the same ones
+// the production validator enforces.
+
+/** Ordered. Index N stays disabled until index N-1 is restored and verified. */
+export const MATRIX_ORDER = [
+  'system.sound_effects_enabled',
+  'system.haptic_feedback_enabled',
+  'system.accelerometer_rotation',
+  'system.screen_brightness_mode',
+  'system.screen_off_timeout',
+  'system.volume_music',
+  'system.volume_notification',
+  'system.volume_ring',
+  'system.volume_alarm',
+  'secure.show_ime_with_hard_keyboard',
+  'global.transition_animation_scale',
+  // LAST. A font_scale write is a configuration change and the activity is
+  // destroyed and recreated under the running test — the manifest's
+  // configChanges mask does not include fontScale. The whole round trip runs
+  // inside one native call, and the journal is forced to disk before the
+  // mutation, so neither recreation nor process death can strand it.
+  'system.font_scale',
+] as const;
+
+/** Non-mutating only. Never written, in any circumstance. */
+export const MATRIX_PROBES = [
+  'secure.spell_checker_enabled',
+  'global.animator_duration_scale',
+] as const;
+
+export type MatrixRoundTripResult =
+  | 'round_trip_succeeded'
+  | 'key_not_present'
+  | 'change_write_failed_original_intact'
+  | 'change_not_persisted_original_restored'
+  | 'restore_succeeded_after_test_failure'
+  | 'restore_failed_stop_immediately'
+  | 'permission_missing'
+  | 'unsupported_value'
+  | 'out_of_order'
+  | 'error';
+
+export type MatrixProbeResult =
+  | 'present_row'
+  | 'absent_key_in_public_sdk'
+  | 'absent_key_not_in_public_sdk'
+  | 'error';
+
+export type MatrixRecoveryResult =
+  | 'no_pending_rollback'
+  | 'pending_rollback_restored'
+  | 'pending_rollback_restore_failed'
+  | 'permission_missing'
+  | 'error';
+
+/**
+ * WRITE_SETTINGS is an APPOP, not a runtime permission, and it is NOT the
+ * grant the earlier experiment obtained. `pm grant … WRITE_SECURE_SETTINGS`
+ * does nothing for Settings.System. This reports the System capability on
+ * its own so the two are never conflated.
+ */
+export async function canWriteSystemSettings(): Promise<boolean> {
+  if (!isNativeModuleAvailable()) return false;
+  return await DeviceSettings.canWriteSystemSettings();
+}
+
+export async function matrixRoundTrip(fullKey: string): Promise<MatrixRoundTripResult> {
+  if (!isNativeModuleAvailable()) return 'error';
+  if (!(MATRIX_ORDER as readonly string[]).includes(fullKey)) return 'error';
+  return await DeviceSettings.matrixRoundTrip(fullKey);
+}
+
+export async function matrixProbePresence(fullKey: string): Promise<MatrixProbeResult> {
+  if (!isNativeModuleAvailable()) return 'error';
+  if (!(MATRIX_PROBES as readonly string[]).includes(fullKey)) return 'error';
+  return await DeviceSettings.matrixProbePresence(fullKey);
+}
+
+/** Must run, and report clean, before any test control renders. */
+export async function matrixRecoverPendingRollback(): Promise<MatrixRecoveryResult> {
+  if (!isNativeModuleAvailable()) return 'error';
+  return await DeviceSettings.matrixRecoverPendingRollback();
+}
+
+/** Presence only — never the namespace, key, or value. Fails closed. */
+export async function matrixRollbackPending(): Promise<boolean> {
+  if (!isNativeModuleAvailable()) return true;
+  return await DeviceSettings.matrixRollbackPending();
+}
+
+/** Index of the next key permitted to run. Ordering state, not a value. */
+export async function matrixNextAllowedIndex(): Promise<number> {
+  if (!isNativeModuleAvailable()) return MATRIX_ORDER.length;
+  return await DeviceSettings.matrixNextAllowedIndex();
+}
+
 // ==================== DEEP LINKS ====================
 
 export async function openSettingsScreen(action: string): Promise<void> {

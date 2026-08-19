@@ -324,6 +324,414 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
         }
     }
 
+    // ======= TEMPORARY EXPERIMENT -- system-write matrix =================
+    //
+    // Answers, per key, the only question that qualifies a key for automatic
+    // restore: can this app CHANGE the value, see the change through a fresh
+    // read, and put the exact original back?
+    //
+    // The production allowlist in src/data/restoreAllowlist.ts is NOT touched
+    // by any of this. These lists are the experiment's own, and the domains
+    // below are deliberately the same ones the production validator enforces,
+    // so a key proven here is proven inside the bounds it will later be
+    // written under.
+    //
+    // Two namespaces of permission, and they are NOT the same grant:
+    //   system.*  needs WRITE_SETTINGS  -- an appop, granted by the user
+    //             through a system dialog or by `adb shell appops set`
+    //   secure/global needs WRITE_SECURE_SETTINGS -- granted by `pm grant`
+    // The earlier ADB grant covered only the second. canWriteSystemSettings()
+    // below reports the first separately rather than assuming it.
+
+    /** Ordered. Index N cannot run until index N-1 restored and verified. */
+    private val MATRIX_ORDER = listOf(
+        "system.sound_effects_enabled",
+        "system.haptic_feedback_enabled",
+        "system.accelerometer_rotation",
+        "system.screen_brightness_mode",
+        "system.screen_off_timeout",
+        "system.volume_music",
+        "system.volume_notification",
+        "system.volume_ring",
+        "system.volume_alarm",
+        "secure.show_ime_with_hard_keyboard",
+        "global.transition_animation_scale",
+        // LAST ON PURPOSE. A font_scale write is a configuration change: the
+        // activity is destroyed and recreated under the running round trip.
+        // The whole trip -- journal, mutate, verify, restore, verify -- happens
+        // inside one native call on the bridge thread, so recreation does not
+        // split it, and the journal is fsynced before the mutation so even
+        // process death leaves a recoverable record.
+        "system.font_scale"
+    )
+
+    /** Non-mutating only. These two returned no row on the earlier run. */
+    private val MATRIX_PROBES = listOf(
+        "secure.spell_checker_enabled",
+        "global.animator_duration_scale"
+    )
+
+    private val MATRIX_JOURNAL = "afterswitch-matrix-rollback.json"
+
+    private val matrixInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var matrixRestorationFailed = false
+    /** Highest index whose restoration has been verified, plus one. */
+    @Volatile private var matrixNextIndex = 0
+
+    private val matrixJournalFile: java.io.File
+        get() = java.io.File(reactContext.filesDir, MATRIX_JOURNAL)
+
+    private fun matrixRead(namespace: String, key: String): String? {
+        val r = reactContext.contentResolver
+        return when (namespace) {
+            "system" -> Settings.System.getString(r, key)
+            "secure" -> Settings.Secure.getString(r, key)
+            else -> Settings.Global.getString(r, key)
+        }
+    }
+
+    private fun matrixWrite(namespace: String, key: String, value: String) {
+        val r = reactContext.contentResolver
+        when (namespace) {
+            "system" -> Settings.System.putString(r, key, value)
+            "secure" -> Settings.Secure.putString(r, key, value)
+            else -> Settings.Global.putString(r, key, value)
+        }
+    }
+
+    /** Synchronous, forced to disk before returning. Never logged. */
+    private fun matrixWriteJournal(namespace: String, key: String, original: String, state: String) {
+        val obj = org.json.JSONObject()
+        obj.put("namespace", namespace)
+        obj.put("key", key)
+        obj.put("original", original)
+        obj.put("state", state)
+        val bytes = obj.toString().toByteArray(Charsets.UTF_8)
+        java.io.FileOutputStream(matrixJournalFile).use { out ->
+            out.write(bytes)
+            out.flush()
+            // force(true) flushes data AND metadata. The journal has to
+            // survive process death and an activity recreation mid-write,
+            // not merely reach the page cache.
+            out.channel.force(true)
+        }
+    }
+
+    private fun matrixClearJournal() {
+        matrixJournalFile.delete()
+    }
+
+    /**
+     * The alternate value, chosen internally and never exposed.
+     *
+     * Every rule stays inside the SAME domain the production validator
+     * enforces, so nothing is proven under looser bounds than it will later
+     * be written under. Each is minimal and instantly reversible.
+     */
+    private fun matrixAlternate(key: String, original: String): String? = when (key) {
+        // Booleans: flip. The visible effect lasts one round trip.
+        "system.sound_effects_enabled",
+        "system.haptic_feedback_enabled",
+        "system.accelerometer_rotation",
+        "system.screen_brightness_mode",
+        "secure.show_ime_with_hard_keyboard" -> when (original.trim()) {
+            "0" -> "1"
+            "1" -> "0"
+            else -> null
+        }
+        // Screen timeout: the platform control offers 15s/30s/1m/2m/5m/10m/30m.
+        // Take the first of two mid-range options that differs from the
+        // original, so the written value is always one the platform offers.
+        "system.screen_off_timeout" -> {
+            val n = original.trim().toIntOrNull()
+            if (n == null || n < 15000 || n > 1800000) null
+            else listOf(30000, 60000).first { it != n }.toString()
+        }
+        // Volumes: stream indices. Move by ONE step and never to 0 -- a zero
+        // ring or alarm volume is a silenced phone, not a cosmetic change.
+        "system.volume_music",
+        "system.volume_notification",
+        "system.volume_ring",
+        "system.volume_alarm" -> {
+            val n = original.trim().toIntOrNull()
+            if (n == null || n < 0 || n > 30) null
+            else if (n >= 2) (n - 1).toString() else (n + 1).toString()
+        }
+        // Animation speed multiplier. Developer options offers
+        // 0.5x/1x/1.5x/2x/5x/10x. Zero is never chosen: "off" disables
+        // animation rather than changing its speed.
+        "global.transition_animation_scale" -> {
+            val f = original.trim().toFloatOrNull()
+            if (f == null || f < 0f || f > 10f) null
+            else if (f == 1.0f) "0.5" else "1.0"
+        }
+        // Font scale. The platform control offers 0.85 / 1.0 / 1.15 / 1.3.
+        // ONE step, and the smallest visible one.
+        "system.font_scale" -> {
+            val f = original.trim().toFloatOrNull()
+            if (f == null || f < 0.5f || f > 2.0f) null
+            else if (f == 1.0f) "1.15" else "1.0"
+        }
+        else -> null
+    }
+
+    /** WRITE_SETTINGS is an appop, separate from WRITE_SECURE_SETTINGS. */
+    @ReactMethod
+    fun canWriteSystemSettings(promise: Promise) {
+        promise.resolve(Settings.System.canWrite(reactContext))
+    }
+
+    private fun hasMatrixSecurePermission(): Boolean =
+        reactContext.checkSelfPermission(
+            android.Manifest.permission.WRITE_SECURE_SETTINGS
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    /**
+     * Read -> validate -> journal -> change -> fresh-read verify -> restore in
+     * finally -> fresh-read verify -> clear journal.
+     *
+     * Returns one coarse status. No value, no key, no exception text.
+     */
+    @ReactMethod
+    fun matrixRoundTrip(fullKey: String, promise: Promise) {
+        if (!matrixInFlight.compareAndSet(false, true)) {
+            promise.resolve("error")
+            return
+        }
+
+        var outcome: String? = null
+        var original: String? = null
+        var mutationAttempted = false
+        var journalWritten = false
+        var namespace = ""
+        var key = ""
+
+        try {
+            if (matrixRestorationFailed || matrixJournalFile.exists()) {
+                outcome = "restore_failed_stop_immediately"
+                return
+            }
+            val index = MATRIX_ORDER.indexOf(fullKey)
+            if (index < 0) {
+                outcome = "error"
+                return
+            }
+            // ONE AT A TIME, IN ORDER. The next key stays refused until the
+            // previous original has been restored and verified.
+            if (index != matrixNextIndex) {
+                outcome = "out_of_order"
+                return
+            }
+            val cut = fullKey.indexOf('.')
+            namespace = fullKey.substring(0, cut)
+            key = fullKey.substring(cut + 1)
+
+            val permitted =
+                if (namespace == "system") Settings.System.canWrite(reactContext)
+                else hasMatrixSecurePermission()
+            if (!permitted) {
+                outcome = "permission_missing"
+                return
+            }
+
+            val current = matrixRead(namespace, key)
+            // Absent: refuse before any write. This never creates a key.
+            if (current == null) {
+                outcome = "key_not_present"
+                return
+            }
+
+            val alternate = matrixAlternate(fullKey, current)
+            if (alternate == null || alternate == current) {
+                outcome = "unsupported_value"
+                return
+            }
+
+            matrixWriteJournal(namespace, key, current, "pending")
+            journalWritten = true
+            original = current
+
+            mutationAttempted = true
+            matrixWrite(namespace, key, alternate)
+
+            // Fresh read from the provider, not the write's own return.
+            outcome = if (matrixRead(namespace, key) == alternate) "round_trip_succeeded"
+                      else "change_not_persisted_original_restored"
+        } catch (e: SecurityException) {
+            outcome = if (mutationAttempted) "change_write_failed_original_intact"
+                      else "permission_missing"
+        } catch (e: Exception) {
+            outcome = "error"
+        } finally {
+            var restoreOk = true
+            val toRestore = original
+            if (toRestore != null) {
+                restoreOk = false
+                try {
+                    matrixWrite(namespace, key, toRestore)
+                    restoreOk = matrixRead(namespace, key) == toRestore
+                } catch (e: Exception) {
+                    restoreOk = false
+                }
+            }
+
+            if (!restoreOk) {
+                // Keep the journal: it is the only thing that can finish the
+                // restoration on the next launch. Everything after this is
+                // blocked, including cleanup.
+                matrixRestorationFailed = true
+                outcome = "restore_failed_stop_immediately"
+            } else {
+                if (journalWritten && toRestore != null) {
+                    try { matrixWriteJournal(namespace, key, toRestore, "verified") } catch (e: Exception) { }
+                    matrixClearJournal()
+                }
+                if (outcome == null) outcome = "error"
+                if (mutationAttempted &&
+                    outcome != "round_trip_succeeded" &&
+                    outcome != "change_not_persisted_original_restored" &&
+                    outcome != "change_write_failed_original_intact") {
+                    outcome = "restore_succeeded_after_test_failure"
+                }
+                // Advance only on a definite, restored outcome for THIS index.
+                if (outcome != "out_of_order" && outcome != "error") {
+                    val index = MATRIX_ORDER.indexOf(fullKey)
+                    if (index == matrixNextIndex) matrixNextIndex = index + 1
+                }
+            }
+
+            promise.resolve(outcome ?: "error")
+            matrixInFlight.set(false)
+        }
+    }
+
+    /**
+     * NON-MUTATING presence probe. Writes nothing, ever.
+     *
+     * `key_not_present` from the earlier run proved only that no ROW existed.
+     * It did not distinguish "known setting sitting on its implicit default"
+     * from "not supported on this OS or OEM". Writing would answer it by
+     * creating the row, which is precisely the false positive to avoid, so
+     * the discriminator is reflection over the platform's own Settings
+     * constants: a key declared there is one the platform knows.
+     */
+    @ReactMethod
+    fun matrixProbePresence(fullKey: String, promise: Promise) {
+        try {
+            if (!MATRIX_PROBES.contains(fullKey)) {
+                promise.resolve("error")
+                return
+            }
+            val cut = fullKey.indexOf('.')
+            val namespace = fullKey.substring(0, cut)
+            val key = fullKey.substring(cut + 1)
+
+            if (matrixRead(namespace, key) != null) {
+                promise.resolve("present_row")
+                return
+            }
+
+            val cls = when (namespace) {
+                "secure" -> Settings.Secure::class.java
+                "global" -> Settings.Global::class.java
+                else -> Settings.System::class.java
+            }
+            // Match on the FIELD NAME. Android filters @hide members out of
+            // getDeclaredFields() and blocks get() on them for a non-exempt
+            // app, so comparing field VALUES degrades silently to "not
+            // declared". The Settings classes name their constants as the
+            // uppercased key, which is readable without any hidden-API
+            // access.
+            //
+            // LIMIT, and it is a real one: a key that exists but is @hide
+            // reads the same as a key that does not exist at all. This
+            // narrows the question, it does not close it.
+            val wanted = key.uppercase()
+            var declared = false
+            for (f in cls.declaredFields) {
+                if (f.name == wanted) { declared = true; break }
+            }
+            promise.resolve(
+                if (declared) "absent_key_in_public_sdk"
+                else "absent_key_not_in_public_sdk"
+            )
+        } catch (e: Exception) {
+            promise.resolve("error")
+        }
+    }
+
+    /** Startup recovery. Must run before any test control renders. */
+    @ReactMethod
+    fun matrixRecoverPendingRollback(promise: Promise) {
+        try {
+            if (!matrixJournalFile.exists()) {
+                promise.resolve("no_pending_rollback")
+                return
+            }
+            val obj = try {
+                org.json.JSONObject(matrixJournalFile.readText(Charsets.UTF_8))
+            } catch (e: Exception) { null }
+            if (obj == null) {
+                matrixRestorationFailed = true
+                promise.resolve("pending_rollback_restore_failed")
+                return
+            }
+            val state = obj.optString("state")
+            val namespace = obj.optString("namespace")
+            val key = obj.optString("key")
+            val original = if (obj.has("original")) obj.optString("original") else null
+
+            if (state == "verified") {
+                matrixClearJournal()
+                promise.resolve("no_pending_rollback")
+                return
+            }
+            if (state != "pending" || original == null ||
+                !MATRIX_ORDER.contains("$namespace.$key")) {
+                matrixRestorationFailed = true
+                promise.resolve("pending_rollback_restore_failed")
+                return
+            }
+
+            val permitted =
+                if (namespace == "system") Settings.System.canWrite(reactContext)
+                else hasMatrixSecurePermission()
+            if (!permitted) {
+                matrixRestorationFailed = true
+                promise.resolve("permission_missing")
+                return
+            }
+
+            if (matrixRead(namespace, key) != original) {
+                matrixWrite(namespace, key, original)
+            }
+            if (matrixRead(namespace, key) == original) {
+                matrixWriteJournal(namespace, key, original, "verified")
+                matrixClearJournal()
+                promise.resolve("pending_rollback_restored")
+            } else {
+                matrixRestorationFailed = true
+                promise.resolve("pending_rollback_restore_failed")
+            }
+        } catch (e: Exception) {
+            matrixRestorationFailed = true
+            promise.resolve("error")
+        }
+    }
+
+    /** Presence only -- never the namespace, key, or value. */
+    @ReactMethod
+    fun matrixRollbackPending(promise: Promise) {
+        promise.resolve(matrixJournalFile.exists() || matrixRestorationFailed)
+    }
+
+    /** Index of the next key permitted to run. Ordering state, not a value. */
+    @ReactMethod
+    fun matrixNextAllowedIndex(promise: Promise) {
+        promise.resolve(matrixNextIndex)
+    }
+    // ======= END TEMPORARY EXPERIMENT ====================================
+
     // ==================== WRITE METHODS ====================
 
     /**
