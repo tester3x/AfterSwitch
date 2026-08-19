@@ -304,11 +304,19 @@ const ALREADY_PROVEN = [
 {
   const alt = ktFun('matrixAlternate');
   check('an alternate selector exists', alt !== null);
-  check('booleans flip within {0,1}', /"0" -> "1"[\s\S]{0,40}"1" -> "0"/.test(alt || ''));
-  check('screen_off_timeout stays within the production int domain',
-    /n < 15000 \|\| n > 1800000/.test(alt || '') && /listOf\(30000, 60000\)/.test(alt || ''));
-  check('volumes move by one step and never to zero',
-    /if \(n >= 2\) \(n - 1\)\.toString\(\) else \(n \+ 1\)\.toString\(\)/.test(alt || ''));
+  // Round 2 exercises exactly two keys, so the selector must contain exactly
+  // two rules. Arms for the ten accepted keys were removed, not left
+  // unreachable — the artifact gate flagged their strings in the compiled
+  // dex, and a build that still knows how to mutate a key it must never run
+  // is a build whose contents do not match its purpose.
+  {
+    const arms = (alt || '').match(/^\s*"[a-z]+\.[a-z0-9_]+"/gm) || [];
+    check('the alternate selector has exactly two rules',
+      arms.length === 2, arms.map((a) => a.trim()).join(', '));
+    const stale = ALREADY_PROVEN.filter((k) => (alt || '').includes(`"${k}"`));
+    check('no accepted key retains an alternate-value rule',
+      stale.length === 0, stale.join(', '));
+  }
   check('transition_animation_scale stays within 0..10 and never picks zero',
     /f < 0f \|\| f > 10f/.test(alt || '') && /if \(f == 1\.0f\) "0\.5" else "1\.0"/.test(alt || ''));
   check('font_scale stays within the production float domain 0.5..2',

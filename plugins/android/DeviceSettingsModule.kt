@@ -436,34 +436,16 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
      * be written under. Each is minimal and instantly reversible.
      */
     private fun matrixAlternate(key: String, original: String): String? = when (key) {
-        // Booleans: flip. The visible effect lasts one round trip.
-        "system.sound_effects_enabled",
-        "system.haptic_feedback_enabled",
-        "system.accelerometer_rotation",
-        "system.screen_brightness_mode",
-        "secure.show_ime_with_hard_keyboard" -> when (original.trim()) {
-            "0" -> "1"
-            "1" -> "0"
-            else -> null
-        }
-        // Screen timeout: the platform control offers 15s/30s/1m/2m/5m/10m/30m.
-        // Take the first of two mid-range options that differs from the
-        // original, so the written value is always one the platform offers.
-        "system.screen_off_timeout" -> {
-            val n = original.trim().toIntOrNull()
-            if (n == null || n < 15000 || n > 1800000) null
-            else listOf(30000, 60000).first { it != n }.toString()
-        }
-        // Volumes: stream indices. Move by ONE step and never to 0 -- a zero
-        // ring or alarm volume is a silenced phone, not a cosmetic change.
-        "system.volume_music",
-        "system.volume_notification",
-        "system.volume_ring",
-        "system.volume_alarm" -> {
-            val n = original.trim().toIntOrNull()
-            if (n == null || n < 0 || n > 30) null
-            else if (n >= 2) (n - 1).toString() else (n + 1).toString()
-        }
+        // The arms for the ten keys accepted in round 1 are GONE, not left as
+        // unreachable branches. They were already unreachable -- matrixRoundTrip
+        // refuses anything MATRIX_ORDER does not contain, and the JS bridge
+        // refuses it too -- but their key strings still landed in the compiled
+        // dex, and the artifact gate rightly flagged that: a build that still
+        // knows how to mutate a key it must never run is a build whose contents
+        // do not match its purpose. Removing them makes the artifact scan
+        // able to distinguish this build from the twelve-key one by content,
+        // not just by a version tag.
+        //
         // Animation speed multiplier. Developer options offers
         // 0.5x/1x/1.5x/2x/5x/10x. Zero is never chosen: "off" disables
         // animation rather than changing its speed.
