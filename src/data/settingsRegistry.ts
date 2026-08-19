@@ -322,6 +322,21 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
     valueFormatter: formatOnOff,
     priority: 51,
   },
+  /**
+   * @deprecated UNREACHABLE -- kept for the record, not deleted.
+   *
+   * Mechanism: profileCompare.ts drops this key before getSettingMeta is
+   * ever called. Its IGNORED_SETTING_PATTERNS list contains /_time$/, which
+   * matches 'auto_time', so the diff is skipped and none of the metadata
+   * below -- label, samsungIntent, the four guided steps -- can be reached.
+   *
+   * That is a SEPARATE mechanism from the samsung.* deadness further down:
+   * this entry is in a namespace the compare loop does iterate, and dies to
+   * an ignore pattern rather than to an unconstructable lookup key.
+   *
+   * Reviving it means deciding whether /_time$/ should be narrowed. Not done
+   * in this lane.
+   */
   'global.auto_time': {
     label: 'Automatic date & time',
     group: 'connectivity',
@@ -413,6 +428,31 @@ export const SETTINGS_REGISTRY: Record<string, SettingMeta> = {
   },
 
   // ---- Samsung-specific ----
+  //
+  // @deprecated UNREACHABLE -- all 22 entries below. Kept verbatim, not
+  // deleted and not renamed: they are the source material for reviving these
+  // settings under their REAL namespaces later, which is a separate lane.
+  //
+  // Mechanism, and it is structural rather than a bug in any one entry:
+  //
+  //   1. getSettingMeta() has exactly one caller, profileCompare.ts, which
+  //      passes `${ns}.${key}` for ns in ['system', 'secure', 'global'].
+  //      The string 'samsung.<anything>' is therefore never constructed, so
+  //      none of these ids can ever be looked up.
+  //
+  //   2. getSamsungSettings() in DeviceSettingsModule.kt stores RAW keys
+  //      ('aod_mode'), not prefixed ones, scanned out of the same three
+  //      providers. Even the samsung bucket could not produce these ids.
+  //
+  // Consequence worth naming: the real keys these describe ARE captured and
+  // diffed, in their true namespace, and used to receive generic pattern
+  // metadata instead of the curated entry below. `samsung.lock_screen_show_
+  // notifications` is the sharpest case -- its real key matched the 'lock'
+  // pattern, landed in the SECURITY group, and was automatically written.
+  //
+  // The `samsungOnly: true` flag on these entries is dead for the same
+  // reason: the guard that reads it in profileCompare.ts cannot fire.
+
   'samsung.samsung_keyboard_show_alt_chars': {
     label: 'Samsung Keyboard: Show alternative characters',
     group: 'samsung',
