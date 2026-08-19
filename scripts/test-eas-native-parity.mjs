@@ -91,16 +91,63 @@ const COARSE = [
   for (const c of COARSE) {
     check(`canonical Kotlin can return ${c}`, ktCode.includes(`"${c}"`));
   }
-  check('canonical Kotlin allowlists exactly six keys',
-    (ktCode.match(/"(long_press_timeout|show_ime_with_hard_keyboard|spell_checker_enabled|window_animation_scale|transition_animation_scale|animator_duration_scale)"/g) || []).length === 6);
+  // Count inside the same-value allowlist declarations only. The round-trip
+  // probe declares its own two-key allowlist and legitimately repeats two of
+  // these names; a whole-file count would conflate the two instruments.
+  const sameValueSets = (ktCode.match(/DIAGNOSTIC_(SECURE|GLOBAL)_KEYS = setOf\(([\s\S]*?)\)/g) || []).join('\n');
+  check('the same-value allowlist declares exactly six keys',
+    (sameValueSets.match(/"[a-z_]+"/g) || []).length === 6,
+    String((sameValueSets.match(/"[a-z_]+"/g) || []).length));
+}
+
+// ── 3b. The round-trip probe, its allowlist and its vocabulary ────────────
+{
+  const ROUNDTRIP_COARSE = [
+    'round_trip_succeeded', 'key_not_present', 'change_write_failed_original_intact',
+    'change_not_persisted_original_restored', 'restore_succeeded_after_test_failure',
+    'restore_failed_stop_immediately', 'permission_missing', 'error',
+  ];
+  check('canonical Kotlin declares diagnosticRoundTrip',
+    /fun diagnosticRoundTrip\(/.test(ktCode));
+  check('canonical Kotlin declares diagnosticRecoverPendingRollback',
+    /fun diagnosticRecoverPendingRollback\(/.test(ktCode));
+  check('canonical Kotlin declares diagnosticRollbackPending',
+    /fun diagnosticRollbackPending\(/.test(ktCode));
+
+  const tripSets = (ktCode.match(/ROUNDTRIP_(SECURE|GLOBAL)_KEYS = setOf\(([^)]*)\)/g) || []).join('\n');
+  check('the round-trip allowlist declares exactly two keys',
+    (tripSets.match(/"[a-z_]+"/g) || []).length === 2,
+    tripSets.replace(/\s+/g, ' '));
+  check('the round-trip allowlist is exactly long_press_timeout + window_animation_scale',
+    /ROUNDTRIP_SECURE_KEYS = setOf\("long_press_timeout"\)/.test(ktCode) &&
+    /ROUNDTRIP_GLOBAL_KEYS = setOf\("window_animation_scale"\)/.test(ktCode));
+
+  for (const c of ROUNDTRIP_COARSE) {
+    check(`canonical Kotlin can return ${c}`, ktCode.includes(`"${c}"`));
+  }
+
+  const reader = read('src/services/settingsReader.ts');
+  check('the JS bridge calls the round-trip method the native module declares',
+    /DeviceSettings\.diagnosticRoundTrip\(/.test(reader) &&
+    /DeviceSettings\.diagnosticRecoverPendingRollback\(/.test(reader) &&
+    /DeviceSettings\.diagnosticRollbackPending\(/.test(reader));
+
+  const jsTrip = (reader.match(/ROUNDTRIP_KEYS = \{([\s\S]*?)\n\}/) || ['', ''])[1];
+  check('the JS round-trip allowlist declares exactly two keys',
+    (jsTrip.match(/'[a-z_]+'/g) || []).length === 2, jsTrip.replace(/\s+/g, ' '));
+  check('the JS and native round-trip allowlists agree',
+    /secure: \['long_press_timeout'\]/.test(jsTrip) &&
+    /global: \['window_animation_scale'\]/.test(jsTrip));
 }
 
 // ── 4. JS bridge and native allowlists agree ───────────────────────────────
 {
   const reader = read('src/services/settingsReader.ts');
   for (const k of SIX_KEYS) check(`JS allowlist contains ${k}`, reader.includes(`'${k}'`));
-  const jsKeys = (reader.match(/'(long_press_timeout|show_ime_with_hard_keyboard|spell_checker_enabled|window_animation_scale|transition_animation_scale|animator_duration_scale)'/g) || []);
-  check('JS allowlist contains exactly six keys', jsKeys.length === 6, String(jsKeys.length));
+  // Scoped to the same-value allowlist object, for the same reason as above.
+  const jsSameValue = (reader.match(/DIAGNOSTIC_KEYS = \{([\s\S]*?)\n\}/) || ['', ''])[1];
+  const jsKeys = (jsSameValue.match(/'[a-z_]+'/g) || []);
+  check('the JS same-value allowlist declares exactly six keys', jsKeys.length === 6, String(jsKeys.length));
   check('the JS bridge calls the method the native module declares',
     /DeviceSettings\.diagnosticSameValueWrite\(/.test(reader) &&
     /fun diagnosticSameValueWrite\(/.test(ktCode));

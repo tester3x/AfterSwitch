@@ -161,6 +161,91 @@ export async function diagnosticSameValueWrite(
   return await DeviceSettings.diagnosticSameValueWrite(namespace, key);
 }
 
+// ====== TEMPORARY EXPERIMENT — changed-value round trip ===================
+
+/**
+ * Coarse outcomes of the changed-value round trip. Never carries a value,
+ * a key, or exception text.
+ *
+ *   round_trip_succeeded                    changed, verified, restored, verified
+ *   key_not_present                         no row existed; nothing was written
+ *   change_write_failed_original_intact     the change write was refused
+ *   change_not_persisted_original_restored  accepted, but the fresh read disagreed
+ *   restore_succeeded_after_test_failure    the test failed; the original is back
+ *   restore_failed_stop_immediately         STOP. The journal is still pending.
+ *   permission_missing                      not held; nothing was written
+ *   error                                   refused or unusable; nothing was written
+ */
+export type DiagnosticRoundTripResult =
+  | 'round_trip_succeeded'
+  | 'key_not_present'
+  | 'change_write_failed_original_intact'
+  | 'change_not_persisted_original_restored'
+  | 'restore_succeeded_after_test_failure'
+  | 'restore_failed_stop_immediately'
+  | 'permission_missing'
+  | 'error';
+
+/**
+ * Exactly two keys, one per restricted namespace. Both are cosmetic and
+ * instantly reversible; neither touches security, accessibility, networking,
+ * input method, or device administration.
+ */
+export const ROUNDTRIP_KEYS = {
+  secure: ['long_press_timeout'],
+  global: ['window_animation_scale'],
+} as const;
+
+/** Outcome of the startup rollback recovery. Presence and result only. */
+export type DiagnosticRecoveryResult =
+  | 'no_pending_rollback'
+  | 'pending_rollback_restored'
+  | 'pending_rollback_restore_failed'
+  | 'permission_missing'
+  | 'error';
+
+/**
+ * DEVELOPMENT DIAGNOSTIC. Reads a known key, writes a DIFFERENT valid value,
+ * verifies the change through a fresh read, then restores the exact original
+ * in a finally path and verifies that too.
+ *
+ * The native side journals the original to this package's private storage,
+ * fsynced, before it mutates anything, so process death cannot strand the
+ * setting. Nothing here ever sees the original, the alternate, or the
+ * restored value.
+ *
+ * Never called by scan, restore, startup or any background path — the
+ * diagnostic screen is its only caller.
+ */
+export async function diagnosticRoundTrip(
+  namespace: DiagnosticNamespace,
+  key: string,
+): Promise<DiagnosticRoundTripResult> {
+  if (!isNativeModuleAvailable()) return 'error';
+  const allowed: readonly string[] = ROUNDTRIP_KEYS[namespace];
+  // Refuse on the JS side too, so a caller cannot reach the bridge with an
+  // arbitrary key even if the native allowlist were ever loosened.
+  if (!allowed.includes(key)) return 'error';
+  return await DeviceSettings.diagnosticRoundTrip(namespace, key);
+}
+
+/**
+ * Finish any rollback left pending by a previous process. MUST run, and MUST
+ * report a clean result, before any test button becomes available.
+ */
+export async function diagnosticRecoverPendingRollback(): Promise<DiagnosticRecoveryResult> {
+  // No native module means the recovery cannot be proven to have happened.
+  // Fail closed: 'error' blocks the UI rather than silently allowing tests.
+  if (!isNativeModuleAvailable()) return 'error';
+  return await DeviceSettings.diagnosticRecoverPendingRollback();
+}
+
+/** Presence only — never the namespace, key, or value. Fails closed. */
+export async function diagnosticRollbackPending(): Promise<boolean> {
+  if (!isNativeModuleAvailable()) return true;
+  return await DeviceSettings.diagnosticRollbackPending();
+}
+
 // ==================== WRITE ====================
 
 export async function writeSystemSetting(key: string, value: string): Promise<boolean> {

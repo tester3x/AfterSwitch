@@ -415,6 +415,332 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
         }
     }
 
+    // ======= TEMPORARY EXPERIMENT -- changed-value round trip =============
+    //
+    // Decides the ONE question the same-value probe could not: with
+    // WRITE_SECURE_SETTINGS held, can this app CHANGE a known existing value,
+    // observe the change through a fresh read, and put the exact original
+    // back? A same-value write may be a no-op the provider accepts trivially;
+    // only a changed value exercises the path a real restore takes.
+    //
+    // Exactly two keys, one per restricted namespace. Nothing else is
+    // reachable, on either side of the bridge.
+    private val ROUNDTRIP_SECURE_KEYS = setOf("long_press_timeout")
+    private val ROUNDTRIP_GLOBAL_KEYS = setOf("window_animation_scale")
+
+    /**
+     * CRASH-SAFE ROLLBACK JOURNAL.
+     *
+     * An in-memory variable is not enough: if the process dies between the
+     * mutation and the restore, the changed setting is stranded with no
+     * record of what it used to be. The journal is written and fsynced to
+     * this package's private files directory BEFORE the mutation, and is
+     * removed only after the restoration has been independently verified.
+     *
+     * It is never logged, rendered, transmitted, exported, or uploaded. It
+     * lives in the diagnostic package's private storage, so uninstalling the
+     * diagnostic package erases it -- which is why cleanup must refuse to
+     * uninstall while an entry is still pending.
+     */
+    private val rollbackFile: java.io.File
+        get() = java.io.File(reactContext.filesDir, "afterswitch-diagnostic-rollback.json")
+
+    /** One round trip at a time, enforced below the UI. */
+    private val roundTripInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** Any restoration failure blocks every further test in this process. */
+    @Volatile private var restorationFailed = false
+
+    /** Global may not run until Secure has finished with a verified outcome. */
+    @Volatile private var secureRoundTripClean = false
+
+    private fun readValue(namespace: String, key: String, resolver: ContentResolver): String? =
+        if (namespace == "secure") Settings.Secure.getString(resolver, key)
+        else Settings.Global.getString(resolver, key)
+
+    private fun writeValue(namespace: String, key: String, value: String, resolver: ContentResolver) {
+        if (namespace == "secure") Settings.Secure.putString(resolver, key, value)
+        else Settings.Global.putString(resolver, key, value)
+    }
+
+    /** Synchronous, flushed to disk before returning. Never logged. */
+    private fun writeJournal(namespace: String, key: String, original: String, state: String) {
+        val obj = org.json.JSONObject()
+        obj.put("namespace", namespace)
+        obj.put("key", key)
+        obj.put("original", original)
+        obj.put("state", state)
+        val bytes = obj.toString().toByteArray(Charsets.UTF_8)
+        java.io.FileOutputStream(rollbackFile).use { out ->
+            out.write(bytes)
+            out.flush()
+            // force(true) flushes data AND metadata; the journal must survive
+            // process death, not merely reach the page cache.
+            out.channel.force(true)
+        }
+    }
+
+    private fun clearJournal() {
+        rollbackFile.delete()
+    }
+
+    /**
+     * The alternate value, chosen internally and never exposed.
+     *
+     * secure.long_press_timeout is a touch-and-hold delay in milliseconds.
+     * The platform control offers exactly Short=400, Medium=1000, Long=1500,
+     * so the rule is: take the first of those three that differs from the
+     * original. The value written is always one the platform itself offers.
+     *
+     * global.window_animation_scale is an animation SPEED multiplier.
+     * Developer options offers 0.5x / 1x / 1.5x / 2x / 5x / 10x, so the rule
+     * is: use 1.0 unless the original already parses to 1.0, in which case
+     * use 0.5. Zero is deliberately never chosen -- "off" disables animation
+     * rather than changing its speed.
+     *
+     * Neither key touches security, accessibility, networking, input method,
+     * or device administration. The visible effect of either is a slightly
+     * different touch delay or animation speed, for under a second.
+     *
+     * Returns null when the present value is outside the documented valid
+     * domain, i.e. present but not suitable for the test.
+     */
+    private fun alternateFor(key: String, original: String): String? = when (key) {
+        "long_press_timeout" -> {
+            val n = original.trim().toIntOrNull()
+            if (n == null || n < 100 || n > 5000) null
+            else listOf(400, 1000, 1500).first { it != n }.toString()
+        }
+        "window_animation_scale" -> {
+            val f = original.trim().toFloatOrNull()
+            if (f == null || f < 0f || f > 10f) null
+            else if (f == 1.0f) "0.5" else "1.0"
+        }
+        else -> null
+    }
+
+    /**
+     * Read -> validate -> journal -> change -> verify -> restore -> verify.
+     *
+     * Returns one coarse status and nothing else. No value, no key, no
+     * exception text ever crosses the bridge.
+     */
+    @ReactMethod
+    fun diagnosticRoundTrip(namespace: String, key: String, promise: Promise) {
+        // Single flight. A second concurrent call never touches a setting.
+        if (!roundTripInFlight.compareAndSet(false, true)) {
+            promise.resolve("error")
+            return
+        }
+
+        var outcome: String? = null
+        var original: String? = null
+        var mutationAttempted = false
+        var journalWritten = false
+        var reachedTest = false
+
+        try {
+            // A restoration failure in this process, or a journal surviving
+            // from a previous one, blocks every further test.
+            if (restorationFailed || rollbackFile.exists()) {
+                outcome = "restore_failed_stop_immediately"
+                return
+            }
+
+            val allowed = when (namespace) {
+                "secure" -> ROUNDTRIP_SECURE_KEYS
+                "global" -> ROUNDTRIP_GLOBAL_KEYS
+                else -> {
+                    outcome = "error"
+                    return
+                }
+            }
+            if (!allowed.contains(key)) {
+                outcome = "error"
+                return
+            }
+            // Global does not run while Secure restoration is unverified.
+            if (namespace == "global" && !secureRoundTripClean) {
+                outcome = "error"
+                return
+            }
+            reachedTest = true
+
+            val granted = reactContext.checkSelfPermission(
+                android.Manifest.permission.WRITE_SECURE_SETTINGS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                outcome = "permission_missing"
+                return
+            }
+
+            val resolver = reactContext.contentResolver
+            val current = readValue(namespace, key, resolver)
+            // Absent: refuse before any write, so no row is ever created.
+            if (current == null) {
+                outcome = "key_not_present"
+                return
+            }
+
+            val alternate = alternateFor(key, current)
+            if (alternate == null || alternate == current) {
+                // Present but outside the documented valid domain, so no safe
+                // distinct alternate exists. Nothing is written.
+                outcome = "error"
+                return
+            }
+
+            // Journal first, fsynced, THEN mutate. Process death after this
+            // line leaves a recoverable record instead of a stranded setting.
+            writeJournal(namespace, key, current, "pending")
+            journalWritten = true
+            original = current
+
+            mutationAttempted = true
+            writeValue(namespace, key, alternate, resolver)
+
+            // Fresh read from the provider, not the write's own return value.
+            val after = readValue(namespace, key, resolver)
+            outcome = if (after == alternate) "round_trip_succeeded"
+                      else "change_not_persisted_original_restored"
+        } catch (e: SecurityException) {
+            outcome = if (mutationAttempted) "change_write_failed_original_intact"
+                      else "permission_missing"
+        } catch (e: Exception) {
+            outcome = "error"
+        } finally {
+            // RESTORE IN FINALLY. Runs on every exit path, including the
+            // exception paths, and is a harmless no-op when the change write
+            // itself threw.
+            var restoreOk = true
+            val toRestore = original
+            if (toRestore != null) {
+                restoreOk = false
+                try {
+                    val resolver = reactContext.contentResolver
+                    writeValue(namespace, key, toRestore, resolver)
+                    // Independent fresh read. Exact match or nothing.
+                    restoreOk = readValue(namespace, key, resolver) == toRestore
+                } catch (e: Exception) {
+                    restoreOk = false
+                }
+            }
+
+            if (!restoreOk) {
+                // Keep the journal: it is the only thing that can finish the
+                // restoration on the next launch.
+                restorationFailed = true
+                secureRoundTripClean = false
+                outcome = "restore_failed_stop_immediately"
+            } else {
+                if (journalWritten && toRestore != null) {
+                    // Mark verified, then remove. A crash inside this window
+                    // leaves a 'verified' journal, which recovery discards.
+                    try { writeJournal(namespace, key, toRestore, "verified") } catch (e: Exception) { }
+                    clearJournal()
+                }
+                if (outcome == null) outcome = "error"
+                if (mutationAttempted &&
+                    outcome != "round_trip_succeeded" &&
+                    outcome != "change_not_persisted_original_restored" &&
+                    outcome != "change_write_failed_original_intact") {
+                    outcome = "restore_succeeded_after_test_failure"
+                }
+                if (namespace == "secure" && reachedTest) {
+                    secureRoundTripClean = true
+                }
+            }
+
+            promise.resolve(outcome ?: "error")
+            roundTripInFlight.set(false)
+        }
+    }
+
+    /**
+     * Startup recovery. Must run before any test becomes available.
+     *
+     * A journal that exists but cannot be parsed, or names something off the
+     * allowlist, is NOT treated as absent -- it blocks instead.
+     */
+    @ReactMethod
+    fun diagnosticRecoverPendingRollback(promise: Promise) {
+        try {
+            if (!rollbackFile.exists()) {
+                promise.resolve("no_pending_rollback")
+                return
+            }
+
+            val obj = try {
+                org.json.JSONObject(rollbackFile.readText(Charsets.UTF_8))
+            } catch (e: Exception) {
+                null
+            }
+            if (obj == null) {
+                restorationFailed = true
+                promise.resolve("pending_rollback_restore_failed")
+                return
+            }
+
+            val state = obj.optString("state")
+            val namespace = obj.optString("namespace")
+            val key = obj.optString("key")
+            val original = if (obj.has("original")) obj.optString("original") else null
+
+            if (state == "verified") {
+                // Restoration already completed; only the file outlived it.
+                clearJournal()
+                promise.resolve("no_pending_rollback")
+                return
+            }
+
+            val allowed = when (namespace) {
+                "secure" -> ROUNDTRIP_SECURE_KEYS
+                "global" -> ROUNDTRIP_GLOBAL_KEYS
+                else -> null
+            }
+            if (state != "pending" || allowed == null || !allowed.contains(key) || original == null) {
+                restorationFailed = true
+                promise.resolve("pending_rollback_restore_failed")
+                return
+            }
+
+            val granted = reactContext.checkSelfPermission(
+                android.Manifest.permission.WRITE_SECURE_SETTINGS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                restorationFailed = true
+                promise.resolve("permission_missing")
+                return
+            }
+
+            val resolver = reactContext.contentResolver
+            if (readValue(namespace, key, resolver) != original) {
+                writeValue(namespace, key, original, resolver)
+            }
+            if (readValue(namespace, key, resolver) == original) {
+                writeJournal(namespace, key, original, "verified")
+                clearJournal()
+                promise.resolve("pending_rollback_restored")
+            } else {
+                restorationFailed = true
+                promise.resolve("pending_rollback_restore_failed")
+            }
+        } catch (e: Exception) {
+            restorationFailed = true
+            promise.resolve("error")
+        }
+    }
+
+    /**
+     * Presence only -- never the namespace, key, or value. Cleanup and the UI
+     * use this to refuse to proceed while a rollback is outstanding.
+     */
+    @ReactMethod
+    fun diagnosticRollbackPending(promise: Promise) {
+        promise.resolve(rollbackFile.exists() || restorationFailed)
+    }
+    // ======= END TEMPORARY EXPERIMENT ====================================
+
     @ReactMethod
     fun writeSystemSetting(key: String, value: String, promise: Promise) {
         try {
