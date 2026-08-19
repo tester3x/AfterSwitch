@@ -124,19 +124,60 @@ export async function secureWriteCapability(): Promise<SecureWriteCapability> {
 
 // ==================== WRITE ====================
 
-export async function writeSystemSetting(key: string, value: string): Promise<boolean> {
-  if (!isNativeModuleAvailable()) return false;
-  return await DeviceSettings.writeSystemSetting(key, value);
+/**
+ * Coarse native write outcomes. The native module resolves one of these
+ * strings and never a value, so a result can be shown or logged without
+ * leaking a setting.
+ *
+ * It used to resolve a boolean, which could not distinguish "refused" from
+ * "attempted and did not stick", and `writeSystemSetting` REJECTED on a
+ * missing permission — a rejection the caller turned into a generic failure.
+ */
+export type NativeWriteOutcome =
+  | 'write_succeeded'
+  | 'write_failed'
+  | 'key_not_present'
+  | 'not_allowlisted'
+  | 'unsupported_value'
+  | 'permission_missing';
+
+const OUTCOMES: readonly string[] = [
+  'write_succeeded', 'write_failed', 'key_not_present',
+  'not_allowlisted', 'unsupported_value', 'permission_missing',
+];
+
+/** Anything unrecognised is a failure, never a success. Fails closed. */
+function coerceOutcome(raw: unknown): NativeWriteOutcome {
+  return (typeof raw === 'string' && OUTCOMES.includes(raw))
+    ? (raw as NativeWriteOutcome)
+    : 'write_failed';
 }
 
-export async function writeSecureSetting(key: string, value: string): Promise<boolean> {
-  if (!isNativeModuleAvailable()) return false;
-  return await DeviceSettings.writeSecureSetting(key, value);
+export async function writeSystemSetting(key: string, value: string): Promise<NativeWriteOutcome> {
+  if (!isNativeModuleAvailable()) return 'write_failed';
+  try {
+    return coerceOutcome(await DeviceSettings.writeSystemSetting(key, value));
+  } catch {
+    return 'write_failed';
+  }
 }
 
-export async function writeGlobalSetting(key: string, value: string): Promise<boolean> {
-  if (!isNativeModuleAvailable()) return false;
-  return await DeviceSettings.writeGlobalSetting(key, value);
+export async function writeSecureSetting(key: string, value: string): Promise<NativeWriteOutcome> {
+  if (!isNativeModuleAvailable()) return 'write_failed';
+  try {
+    return coerceOutcome(await DeviceSettings.writeSecureSetting(key, value));
+  } catch {
+    return 'write_failed';
+  }
+}
+
+export async function writeGlobalSetting(key: string, value: string): Promise<NativeWriteOutcome> {
+  if (!isNativeModuleAvailable()) return 'write_failed';
+  try {
+    return coerceOutcome(await DeviceSettings.writeGlobalSetting(key, value));
+  } catch {
+    return 'write_failed';
+  }
 }
 
 // ==================== DEEP LINKS ====================

@@ -15,6 +15,7 @@ import {
   writeSecureSetting,
   writeGlobalSetting,
   openSettingsScreen,
+  type NativeWriteOutcome,
 } from '../services/settingsReader';
 import {
   isCompanionAvailable,
@@ -195,22 +196,19 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
    * a novel row in a namespace the key never belonged to.
    */
   const executeWrite = useCallback(async (write: PlannedWrite): Promise<RestoreStatus> => {
-    try {
-      let ok = false;
-      if (write.namespace === 'system') {
-        ok = await writeSystemSetting(write.key, write.value);
-      } else if (write.namespace === 'secure') {
-        ok = await writeSecureSetting(write.key, write.value);
-      } else {
-        ok = await writeGlobalSetting(write.key, write.value);
-      }
-      return ok ? 'write_succeeded' : 'write_failed';
-    } catch {
-      // The native side never throws for a refusal — it resolves false — so
-      // reaching here means a bridge fault. Report the failure, never a
-      // success, and never the exception text.
-      return 'write_failed';
+    // The native module speaks the same coarse vocabulary and enforces its
+    // own copy of the allowlist, so a JS regression cannot widen what it
+    // will write. Anything unrecognised is coerced to a failure, never a
+    // success.
+    let outcome: NativeWriteOutcome;
+    if (write.namespace === 'system') {
+      outcome = await writeSystemSetting(write.key, write.value);
+    } else if (write.namespace === 'secure') {
+      outcome = await writeSecureSetting(write.key, write.value);
+    } else {
+      outcome = await writeGlobalSetting(write.key, write.value);
     }
+    return outcome;
   }, []);
 
   const handleRestoreSetting = useCallback(async (diff: SettingDiff) => {

@@ -404,8 +404,15 @@ const writable = (d) => d && d.restoreType !== 'info';
     /RESTORE_ALLOWLIST/.test(ktSrc));
   check('native: writes reject an unknown namespace/key pair',
     /not_allowlisted/.test(ktSrc));
+  // Name-independent: the outcome must be decided by a FRESH READ from the
+  // provider, never by the return of the write call.
   check('native: read-back verification is preserved',
-    (ktSrc.match(/readBack/g) || []).length >= 3);
+    /if \(read\(\) == value\) "write_succeeded"/.test(ktSrc) &&
+    /read = \{ Settings\.System\.getString\(/.test(ktSrc) &&
+    /read = \{ Settings\.Secure\.getString\(/.test(ktSrc) &&
+    /read = \{ Settings\.Global\.getString\(/.test(ktSrc));
+  check('native: an absent row is detected by a read BEFORE any write',
+    /if \(read\(\) == null\) return "key_not_present"[\s\S]{0,200}try \{[\s\S]{0,40}put\(\)/.test(ktSrc));
   check('native: coarse outcomes only, no value in the result',
     /write_succeeded/.test(ktSrc) && /write_failed/.test(ktSrc) &&
     /key_not_present/.test(ktSrc) && /unsupported_value/.test(ktSrc));

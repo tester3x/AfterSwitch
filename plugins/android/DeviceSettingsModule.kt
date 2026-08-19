@@ -327,112 +327,168 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
     // ==================== WRITE METHODS ====================
 
     /**
-     * Write a single Settings.System value.
-     * Requires WRITE_SETTINGS permission.
-     * Falls back to direct ContentResolver write for Samsung custom settings
-     * that aren't in Android's SETTINGS_TO_BACKUP whitelist (throws IllegalArgumentException).
+     * NATIVE ALLOWLIST MIRROR.
+     *
+     * The JavaScript side has its own allowlist in src/data/restoreAllowlist.ts
+     * and refuses anything not on it. This is a SECOND, INDEPENDENT gate that
+     * assumes the first one is broken: a JS regression, a tampered bundle, or
+     * a future caller that forgets the planner still cannot write a key that
+     * is not listed here.
+     *
+     * The two lists are asserted identical by scripts/test-bounded-restore.mjs.
+     * It holds the WRITABLE set only -- the JS 'auto' tier. Guided and
+     * unsupported entries are never sent here, so mirroring them would make
+     * native laxer than JS, and promoting a key to automatic must touch both
+     * sides on purpose.
+     *
+     * Entries are exact "namespace.key" pairs. No prefixes, no wildcards.
+     */
+    private val RESTORE_ALLOWLIST = setOf(
+        "secure.long_press_timeout",
+        "global.window_animation_scale"
+    )
+
+    private fun isAllowlisted(namespace: String, key: String): Boolean =
+        RESTORE_ALLOWLIST.contains("$namespace.$key")
+
+    /**
+     * Coarse write outcomes. No setting value and no exception text is ever
+     * returned, so a result can be rendered or logged without leaking a
+     * value:
+     *
+     *   write_succeeded    written, and a FRESH READ matched
+     *   write_failed       attempted; the fresh read did not match, or the
+     *                      provider refused
+     *   key_not_present    no row existed, and this never creates one
+     *   not_allowlisted    the namespace/key pair is not on the mirror
+     *   unsupported_value  the value is empty or absurdly long
+     *   permission_missing the required permission is not held
+     */
+    private fun writeChecked(
+        namespace: String,
+        uri: Uri,
+        key: String,
+        value: String,
+        read: () -> String?,
+        put: () -> Unit,
+    ): String {
+        if (!isAllowlisted(namespace, key)) return "not_allowlisted"
+        if (value.isBlank() || value.length > 256) return "unsupported_value"
+
+        // A key with no row is NOT created. The provider `insert` that used to
+        // back the System fallback could mint a novel SettingsProvider row,
+        // which is how a restore could invent settings the device never had.
+        if (read() == null) return "key_not_present"
+
+        return try {
+            put()
+            // Fresh read from the provider, not the return of the write.
+            if (read() == value) "write_succeeded" else {
+                // Second attempt via a direct UPDATE, for OEM keys the
+                // framework helper refuses. Still update-only: it can change a
+                // row that exists and can never create one.
+                val updated = updateExistingRow(uri, key, value)
+                if (updated && read() == value) "write_succeeded" else "write_failed"
+            }
+        } catch (e: SecurityException) {
+            "permission_missing"
+        } catch (e: IllegalArgumentException) {
+            val updated = try { updateExistingRow(uri, key, value) } catch (e2: Exception) { false }
+            if (updated && read() == value) "write_succeeded" else "write_failed"
+        } catch (e: Exception) {
+            "write_failed"
+        }
+    }
+
+    /**
+     * UPDATE ONLY. Returns false when no row matched, and never inserts.
+     *
+     * The previous version fell back to `insert` when `update` matched zero
+     * rows, so writing an unknown key created it. Nothing here can add a row
+     * to the settings database.
+     */
+    private fun updateExistingRow(uri: Uri, key: String, value: String): Boolean {
+        val cv = ContentValues(2).apply {
+            put("name", key)
+            put("value", value)
+        }
+        return reactContext.contentResolver.update(uri, cv, "name = ?", arrayOf(key)) > 0
+    }
+
+    /**
+     * Write a single Settings.System value. Requires WRITE_SETTINGS.
+     * Resolves a coarse status string -- never a boolean, never a value.
      */
     @ReactMethod
     fun writeSystemSetting(key: String, value: String, promise: Promise) {
-        try {
-            if (!Settings.System.canWrite(reactContext)) {
-                promise.reject("NO_PERMISSION", "WRITE_SETTINGS permission not granted")
-                return
-            }
-            Settings.System.putString(reactContext.contentResolver, key, value)
-
-            // Verify the write actually persisted (Android silently blocks non-whitelisted settings)
-            val readBack = Settings.System.getString(reactContext.contentResolver, key)
-            if (readBack == value) {
-                Log.d(TAG, "Wrote system setting: $key = $value")
-                promise.resolve(true)
-            } else {
-                // putString didn't throw but the value didn't stick — try direct ContentResolver
-                Log.w(TAG, "putString silent fail for $key (got $readBack, wanted $value), trying direct")
-                writeSettingDirect(Settings.System.CONTENT_URI, key, value)
-                val readBack2 = Settings.System.getString(reactContext.contentResolver, key)
-                if (readBack2 == value) {
-                    Log.d(TAG, "Wrote system setting via ContentResolver: $key = $value")
-                    promise.resolve(true)
-                } else {
-                    Log.w(TAG, "System setting $key is OS-restricted (write silently blocked)")
-                    promise.resolve(false)
-                }
-            }
-        } catch (e: IllegalArgumentException) {
-            // Samsung custom setting not in Android whitelist — try direct ContentResolver
-            Log.w(TAG, "putString blocked for $key, trying direct ContentResolver")
-            try {
-                writeSettingDirect(Settings.System.CONTENT_URI, key, value)
-                val readBack = Settings.System.getString(reactContext.contentResolver, key)
-                if (readBack == value) {
-                    Log.d(TAG, "Wrote system setting via ContentResolver: $key = $value")
-                    promise.resolve(true)
-                } else {
-                    Log.w(TAG, "System setting $key is OS-restricted")
-                    promise.resolve(false)
-                }
-            } catch (e2: Exception) {
-                Log.e(TAG, "Direct write also failed for $key: ${e2.message}")
-                promise.resolve(false)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "writeSystemSetting failed: ${e.message}")
-            promise.resolve(false)
+        if (!isAllowlisted("system", key)) {
+            promise.resolve("not_allowlisted")
+            return
         }
+        if (!Settings.System.canWrite(reactContext)) {
+            promise.resolve("permission_missing")
+            return
+        }
+        val resolver = reactContext.contentResolver
+        promise.resolve(
+            writeChecked(
+                "system", Settings.System.CONTENT_URI, key, value,
+                read = { Settings.System.getString(resolver, key) },
+                put = { Settings.System.putString(resolver, key, value) },
+            )
+        )
     }
 
     /**
-     * Write a single Settings.Secure value.
-     * Requires WRITE_SECURE_SETTINGS (granted via ADB companion).
+     * Write a single Settings.Secure value. Requires WRITE_SECURE_SETTINGS.
      */
     @ReactMethod
     fun writeSecureSetting(key: String, value: String, promise: Promise) {
-        try {
-            Settings.Secure.putString(reactContext.contentResolver, key, value)
-            // Verify write persisted
-            val readBack = Settings.Secure.getString(reactContext.contentResolver, key)
-            if (readBack == value) {
-                Log.d(TAG, "Wrote secure setting: $key = $value")
-                promise.resolve(true)
-            } else {
-                Log.w(TAG, "Secure setting $key write didn't persist (got $readBack, wanted $value)")
-                promise.resolve(false)
-            }
-        } catch (e: SecurityException) {
-            Log.w(TAG, "Secure setting $key: no permission")
-            promise.resolve(false)
-        } catch (e: Exception) {
-            Log.e(TAG, "writeSecureSetting failed: ${e.message}")
-            promise.resolve(false)
+        if (!isAllowlisted("secure", key)) {
+            promise.resolve("not_allowlisted")
+            return
         }
+        if (!hasSecureWritePermission()) {
+            promise.resolve("permission_missing")
+            return
+        }
+        val resolver = reactContext.contentResolver
+        promise.resolve(
+            writeChecked(
+                "secure", Settings.Secure.CONTENT_URI, key, value,
+                read = { Settings.Secure.getString(resolver, key) },
+                put = { Settings.Secure.putString(resolver, key, value) },
+            )
+        )
     }
 
     /**
-     * Write a single Settings.Global value.
-     * Requires WRITE_SECURE_SETTINGS (granted via ADB companion).
+     * Write a single Settings.Global value. Requires WRITE_SECURE_SETTINGS.
      */
     @ReactMethod
     fun writeGlobalSetting(key: String, value: String, promise: Promise) {
-        try {
-            Settings.Global.putString(reactContext.contentResolver, key, value)
-            // Verify write persisted
-            val readBack = Settings.Global.getString(reactContext.contentResolver, key)
-            if (readBack == value) {
-                Log.d(TAG, "Wrote global setting: $key = $value")
-                promise.resolve(true)
-            } else {
-                Log.w(TAG, "Global setting $key write didn't persist (got $readBack, wanted $value)")
-                promise.resolve(false)
-            }
-        } catch (e: SecurityException) {
-            Log.w(TAG, "Global setting $key: no permission")
-            promise.resolve(false)
-        } catch (e: Exception) {
-            Log.e(TAG, "writeGlobalSetting failed: ${e.message}")
-            promise.resolve(false)
+        if (!isAllowlisted("global", key)) {
+            promise.resolve("not_allowlisted")
+            return
         }
+        if (!hasSecureWritePermission()) {
+            promise.resolve("permission_missing")
+            return
+        }
+        val resolver = reactContext.contentResolver
+        promise.resolve(
+            writeChecked(
+                "global", Settings.Global.CONTENT_URI, key, value,
+                read = { Settings.Global.getString(resolver, key) },
+                put = { Settings.Global.putString(resolver, key, value) },
+            )
+        )
     }
+
+    private fun hasSecureWritePermission(): Boolean =
+        reactContext.checkSelfPermission(
+            android.Manifest.permission.WRITE_SECURE_SETTINGS
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
     /**
      * Open a specific Android Settings screen via intent action.
@@ -512,23 +568,10 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
         return map
     }
 
-    /**
-     * Write a setting directly via ContentResolver, bypassing the high-level
-     * Settings.System.putString whitelist. Uses update-then-insert pattern.
-     * Requires appropriate write permission (WRITE_SETTINGS or WRITE_SECURE_SETTINGS).
-     */
-    private fun writeSettingDirect(uri: Uri, key: String, value: String) {
-        val cv = ContentValues(2).apply {
-            put("name", key)
-            put("value", value)
-        }
-        val updated = reactContext.contentResolver.update(
-            uri, cv, "name = ?", arrayOf(key)
-        )
-        if (updated == 0) {
-            reactContext.contentResolver.insert(uri, cv)
-        }
-    }
+    // writeSettingDirect() was REMOVED. It used an update-then-INSERT pattern,
+    // so writing a key with no existing row CREATED one -- a restore could mint
+    // SettingsProvider rows the device never had. updateExistingRow() above
+    // replaces it and can only ever change a row that already exists.
 
     /**
      * Detect Samsung One UI version via reflection on SemPlatformInt.

@@ -59,8 +59,18 @@ check('permission-granted is not documented as restore-capable',
 // Normal restore routing must be untouched by this repair.
 const RESTORE = read('src/screens/RestoreScreen.tsx');
 check('restore still calls canWriteSecureSettings', /canWriteSecureSettings\(\)/.test(RESTORE));
-check('companion routing unchanged',
-  /if \(companion\.available && allToRestore\.length > 0\)/.test(RESTORE));
+// This used to pin the literal line `if (companion.available &&
+// allToRestore.length > 0)`. That was a scope guard for the permission
+// repair -- "do not touch routing while fixing the capability check" -- and
+// the bounded-restore lane deliberately DID change routing: the companion is
+// now a transport for writes the allowlist already approved, and the planner
+// decides the list. Pinning a source line meant the assertion failed for the
+// intended change, so it now pins the property that must still hold.
+check('the companion is still preferred when available',
+  /companion\.available/.test(RESTORE) && /writeSettingsViaCompanion\(/.test(RESTORE));
+check('the companion cannot widen what is written',
+  /planRestore\(/.test(RESTORE) &&
+  /const settingsToWrite: SettingToWrite\[\] = plan\.writes\.map/.test(RESTORE));
 check('companionBridge.ts still present', read('src/services/companionBridge.ts').length > 0);
 check('usesCleartextTraffic still present', /"usesCleartextTraffic": true/.test(read('app.json')));
 
