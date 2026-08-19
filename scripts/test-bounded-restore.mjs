@@ -161,12 +161,21 @@ const writable = (d) => d && d.restoreType !== 'info';
 
 // ══ D3 — no cross-namespace retry ═══════════════════════════════════════════
 {
-  check('D3: a failed System write does not retry in Secure',
-    !/writeSystemSetting\([\s\S]{0,400}writeSecureSetting\(/.test(restoreSrc));
-  check('D3: a failed System write does not retry in Global',
-    !/writeSystemSetting\([\s\S]{0,600}writeGlobalSetting\(/.test(restoreSrc));
-  check('D3: each namespace routes to exactly one writer',
-    !/if \(!success && hasSecureSettings\)/.test(restoreSrc));
+  // The defect had a specific shape: a failure guard followed by a write to a
+  // DIFFERENT namespace with the same key. An if/else-if chain on the
+  // namespace looks similar to a naive proximity match but is not a retry, so
+  // the assertion pins the failure guard, not the proximity.
+  check('D3: no failure guard is followed by a write in another namespace',
+    !/\(\s*!\s*(success|ok)\b[\s\S]{0,240}write(Secure|Global|System)Setting\(/.test(restoreSrc));
+  check('D3: the specific baseline retry chain is gone',
+    !/if \(!success && hasSecureSettings\)/.test(restoreSrc) &&
+    !/success = await writeSystemSetting[\s\S]{0,300}success = await writeSecureSetting/.test(restoreSrc));
+  check('D3: each namespace selects exactly one writer, by equality',
+    /write\.namespace === 'system'[\s\S]{0,200}writeSystemSetting\(/.test(restoreSrc) &&
+    /write\.namespace === 'secure'[\s\S]{0,200}writeSecureSetting\(/.test(restoreSrc) &&
+    (restoreSrc.match(/await writeSystemSetting\(/g) || []).length === 1 &&
+    (restoreSrc.match(/await writeSecureSetting\(/g) || []).length === 1 &&
+    (restoreSrc.match(/await writeGlobalSetting\(/g) || []).length === 1);
 }
 
 // ══ D4 — validation before mutation ════════════════════════════════════════
@@ -357,8 +366,19 @@ const writable = (d) => d && d.restoreType !== 'info';
   const hostileNew = { system: { ...newS }, secure: { ...newS, long_press_timeout: '400' }, global: { ...newS, window_animation_scale: '1.0' } };
 
   const rows = diff(hostileOld, hostileNew);
-  const writableRows = rows.filter((d) => writable(d));
-  check('adversarial: a hostile profile yields no writable difference',
+  // A hostile KEY must never become writable. A hostile VALUE on a key that
+  // is legitimately allowlisted may still show as automatic here -- it is
+  // refused one layer down, by validation, which the zero-writes assertion
+  // below is what actually binds.
+  const allow = allowMod?.lookupSpec;
+  const writableRows = rows.filter((d) => {
+    if (!writable(d)) return false;
+    if (!allow) return true;
+    const cut = d.key.indexOf('.');
+    const spec = allow(d.key.slice(0, cut), d.key.slice(cut + 1));
+    return !spec || spec.tier !== 'auto';
+  });
+  check('adversarial: no hostile key becomes writable',
     writableRows.length === 0,
     `${writableRows.length} writable, e.g. ${writableRows.slice(0, 4).map((d) => `${d.key}:${d.restoreType}`).join(', ')}`);
 
@@ -396,7 +416,11 @@ const writable = (d) => d && d.restoreType !== 'info';
     const ktBlock = (ktSrc.match(/RESTORE_ALLOWLIST[\s\S]*?\n    \)/) || [''])[0];
     const ktPairs = [...ktBlock.matchAll(/"(system|secure|global)\.([a-z0-9_.]+)"/g)]
       .map((m) => `${m[1]}.${m[2]}`).sort();
-    const jsPairs = specs.filter((s) => s.tier !== 'unsupported')
+    // The native mirror is the WRITABLE set, i.e. tier 'auto' — not every
+    // listed key. Guided and unsupported entries are never sent to the
+    // native writer, so mirroring them there would make native laxer than
+    // JS. Promoting a key to automatic must therefore touch both sides.
+    const jsPairs = specs.filter((s) => s.tier === 'auto')
       .map((s) => `${s.namespace}.${s.key}`).sort();
     check('native: the JS and native allowlists match exactly',
       ktPairs.length > 0 && ktPairs.join('|') === jsPairs.join('|'),

@@ -67,8 +67,15 @@ export type SettingDiff = {
   group: SettingGroup;
   oldValue: string;
   newValue: string;
-  rawOldValue: string;
-  rawNewValue: string;
+  /**
+   * The raw provider values. `null` means the profile had NO ROW for this
+   * key — which is different from a row holding an empty string, and the
+   * difference matters: the old write path used `rawOldValue || oldValue`,
+   * so an empty string fell through to the formatted display value and a
+   * literal '(not set)' could be written into the settings provider.
+   */
+  rawOldValue: string | null;
+  rawNewValue: string | null;
   restoreType: RestoreType;
   settingsIntent?: string;
   description?: string;

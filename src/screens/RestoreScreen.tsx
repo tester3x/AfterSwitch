@@ -23,6 +23,11 @@ import {
   type SettingToWrite,
   type WriteResultStatus,
 } from '../services/companionBridge';
+import {
+  planRestore,
+  type PlannedWrite,
+  type WriteCapability,
+} from '../services/restorePlan';
 
 type Props = {
   comparison: ComparisonResult | null;
@@ -33,7 +38,33 @@ type Props = {
   onRescan?: () => void;
 };
 
-type RestoreStatus = 'pending' | 'restoring' | 'success' | 'failed' | 'not_applicable' | 'overridden';
+/**
+ * Outcome vocabulary. Every one of these is reachable, and none of them can
+ * be produced by guessing: a write is either attempted and read-back
+ * verified, or it is refused with the reason it was refused.
+ */
+type RestoreStatus =
+  | 'pending'
+  | 'restoring'
+  /** Refused: the namespace/key pair is not on the allowlist. */
+  | 'not_allowlisted'
+  /** Refused: allowlisted, but the source value failed type/domain/length. */
+  | 'unsupported_value'
+  /** Refused: no row for this key in the imported profile. */
+  | 'key_not_present'
+  /** Refused: the permission for that namespace is not held. */
+  | 'permission_missing'
+  /** Attempted; the fresh read did not match. */
+  | 'write_failed'
+  /** Attempted; the fresh read matched. */
+  | 'write_succeeded';
+
+/** A status that will not change without another user action. */
+function isTerminalStatus(s: RestoreStatus | undefined): boolean {
+  return s === 'write_succeeded' || s === 'write_failed' ||
+    s === 'not_allowlisted' || s === 'unsupported_value' ||
+    s === 'key_not_present' || s === 'permission_missing';
+}
 
 // Persists collapse state across tab switches (component unmounts/remounts)
 // null = cold open (use collapsed defaults), otherwise use last known state
@@ -129,61 +160,78 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
     }, 2000);
   }, []);
 
-  // Compute restorable diffs early (before callbacks that need it)
+  /**
+   * Which namespaces this build may write RIGHT NOW.
+   *
+   * The companion does NOT widen this. It used to: `secureAutoDiffs`
+   * promoted every non-defaults guided diff to an automatic write whenever
+   * the companion was connected or WRITE_SECURE_SETTINGS was held, which is
+   * how unknown keys reached the write path. The companion is a transport
+   * for writes the allowlist already approved, never a reason to approve
+   * more of them.
+   */
+  const capability: WriteCapability = useMemo(() => ({
+    system: companion.available || hasWriteSettings === true,
+    secure: companion.available || hasSecureSettings === true,
+    global: companion.available || hasSecureSettings === true,
+  }), [companion.available, hasWriteSettings, hasSecureSettings]);
+
+  /** Every difference the allowlist marks automatic, before selection. */
   const allRestorableDiffs = useMemo(() => {
     if (!comparison) return [];
-    const allAutoDiffs = comparison.settings.filter((d) => d.restoreType === 'auto' && !isJunkSetting(d.key));
-    const guidedDiffs = comparison.settings.filter((d) => d.restoreType === 'guided' && !isJunkSetting(d.key));
-    const secureAutoDiffs = (companion.available || hasSecureSettings)
-      ? guidedDiffs.filter((d) => d.category !== 'defaults')
-      : [];
-    const autoDiffs = companion.available
-      ? allAutoDiffs
-      : allAutoDiffs.filter((d) => {
-          if (d.category === 'system' && hasWriteSettings === false) return false;
-          if (d.category === 'secure' && !hasSecureSettings) return false;
-          if (d.category === 'global' && !hasSecureSettings) return false;
-          return true;
-        });
-    return [...autoDiffs, ...secureAutoDiffs];
-  }, [comparison, companion.available, hasWriteSettings, hasSecureSettings]);
+    return comparison.settings.filter((d) => d.restoreType === 'auto' && !isJunkSetting(d.key));
+  }, [comparison]);
 
-  const handleRestoreSettingLocal = useCallback(async (diff: SettingDiff): Promise<boolean> => {
-    const [category, ...keyParts] = diff.key.split('.');
-    const rawKey = keyParts.join('.');
-    const writeValue = diff.rawOldValue || diff.oldValue;
-    let success = false;
+  /** Differences kept for the record but never written. */
+  const notRestorableDiffs = useMemo(() => {
+    if (!comparison) return [];
+    return comparison.settings.filter((d) => d.restoreType === 'info' && !isJunkSetting(d.key));
+  }, [comparison]);
 
-    if (category === 'system') {
-      success = await writeSystemSetting(rawKey, writeValue);
-      if (!success && hasSecureSettings) {
-        success = await writeSecureSetting(rawKey, writeValue);
-        if (!success) {
-          success = await writeGlobalSetting(rawKey, writeValue);
-        }
+  /**
+   * A single planned write, executed. The namespace decides the writer and
+   * nothing retries in another one: a failed System write used to fall
+   * through to Secure and then Global with the same key, which could create
+   * a novel row in a namespace the key never belonged to.
+   */
+  const executeWrite = useCallback(async (write: PlannedWrite): Promise<RestoreStatus> => {
+    try {
+      let ok = false;
+      if (write.namespace === 'system') {
+        ok = await writeSystemSetting(write.key, write.value);
+      } else if (write.namespace === 'secure') {
+        ok = await writeSecureSetting(write.key, write.value);
+      } else {
+        ok = await writeGlobalSetting(write.key, write.value);
       }
-    } else if (category === 'secure') {
-      success = await writeSecureSetting(rawKey, writeValue);
-    } else if (category === 'global') {
-      success = await writeGlobalSetting(rawKey, writeValue);
+      return ok ? 'write_succeeded' : 'write_failed';
+    } catch {
+      // The native side never throws for a refusal — it resolves false — so
+      // reaching here means a bridge fault. Report the failure, never a
+      // success, and never the exception text.
+      return 'write_failed';
     }
-
-    return success;
-  }, [hasSecureSettings]);
+  }, []);
 
   const handleRestoreSetting = useCallback(async (diff: SettingDiff) => {
-    setRestoreStatuses((prev) => ({ ...prev, [diff.key]: 'restoring' }));
-
-    try {
-      const success = await handleRestoreSettingLocal(diff);
+    const plan = planRestore([diff], capability);
+    const write = plan.writes[0];
+    if (!write) {
+      const reason = plan.excluded[0]?.reason;
       setRestoreStatuses((prev) => ({
         ...prev,
-        [diff.key]: success ? 'success' : 'failed',
+        [diff.key]:
+          reason === 'permission_missing' ? 'permission_missing'
+          : reason === 'missing_value' ? 'key_not_present'
+          : reason === 'unsupported_value' ? 'unsupported_value'
+          : 'not_allowlisted',
       }));
-    } catch {
-      setRestoreStatuses((prev) => ({ ...prev, [diff.key]: 'failed' }));
+      return;
     }
-  }, [handleRestoreSettingLocal]);
+    setRestoreStatuses((prev) => ({ ...prev, [diff.key]: 'restoring' }));
+    const status = await executeWrite(write);
+    setRestoreStatuses((prev) => ({ ...prev, [diff.key]: status }));
+  }, [capability, executeWrite]);
 
   /**
    * The plan shown in the confirmation. Computed from the same filters the
@@ -191,37 +239,28 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
    */
   const restorePlan = useMemo(() => {
     const selected = allRestorableDiffs.filter(
-      (d) =>
-        checkedSettings[d.key] &&
-        restoreStatuses[d.key] !== 'success' &&
-        restoreStatuses[d.key] !== 'failed',
+      (d) => checkedSettings[d.key] && !isTerminalStatus(restoreStatuses[d.key]),
     );
-    // With the companion the writes go through shell privilege, so every
-    // selected item is attempted. Without it, only what this app may write.
-    const writable = (d: SettingDiff) => {
-      if (d.category === 'system' && !hasWriteSettings) return false;
-      if (d.category === 'secure' && !hasSecureSettings) return false;
-      if (d.category === 'global' && !hasSecureSettings) return false;
-      return true;
-    };
-    const automatic = companion.available ? selected : selected.filter(writable);
-    const blocked = companion.available ? [] : selected.filter((d) => !writable(d));
+    // The SAME planner the restore runs, so the confirmation numbers cannot
+    // drift from what actually happens.
+    const plan = planRestore(selected, capability);
     const guidedRemaining = comparison
       ? comparison.settings.filter(
           (d) =>
             d.restoreType === 'guided' &&
             !isJunkSetting(d.key) &&
-            restoreStatuses[d.key] !== 'success',
+            restoreStatuses[d.key] !== 'write_succeeded',
         )
       : [];
     return {
-      automaticCount: automatic.length,
+      automaticCount: plan.writes.length,
       guidedCount: guidedRemaining.length,
-      skippedCount: blocked.length,
+      skippedCount: plan.excluded.length,
+      notRestorableCount: notRestorableDiffs.length,
     };
   }, [
-    comparison, allRestorableDiffs, checkedSettings, restoreStatuses,
-    hasWriteSettings, hasSecureSettings, companion.available,
+    comparison, allRestorableDiffs, notRestorableDiffs, checkedSettings,
+    restoreStatuses, capability,
   ]);
 
   /**
@@ -246,67 +285,60 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
     restoreStartedRef.current = true;
     setRestoring(true);
 
-    // Only restore settings that match the displayed count (allRestorableDiffs)
-    // This excludes junk settings and respects the same filters as the UI
-    const allToRestore = allRestorableDiffs.filter(
-      (d) =>
-        checkedSettings[d.key] &&
-        restoreStatuses[d.key] !== 'success' &&
-        restoreStatuses[d.key] !== 'failed'
+    const selected = allRestorableDiffs.filter(
+      (d) => checkedSettings[d.key] && !isTerminalStatus(restoreStatuses[d.key]),
     );
 
-    if (companion.available && allToRestore.length > 0) {
-      // ====== COMPANION PATH ======
-      // Send ALL settings to companion for ADB shell writes (shell privilege)
-      // Mark all as restoring
-      const newStatuses: Record<string, RestoreStatus> = {};
-      for (const d of allToRestore) {
-        newStatuses[d.key] = 'restoring';
-      }
-      setRestoreStatuses((prev) => ({ ...prev, ...newStatuses }));
+    // ONE planner, ONE decision point. Both transports execute exactly the
+    // list it produces; neither may add to it. Everything the planner
+    // refused is reported with its reason rather than silently dropped.
+    const plan = planRestore(selected, capability);
 
-      // Build the write list
-      const settingsToWrite: SettingToWrite[] = allToRestore.map((d) => {
-        const [category, ...keyParts] = d.key.split('.');
-        return {
-          namespace: category,
-          key: keyParts.join('.'),
-          value: d.rawOldValue || d.oldValue,
-        };
-      });
+    const refused: Record<string, RestoreStatus> = {};
+    for (const e of plan.excluded) {
+      refused[e.diffKey] =
+        e.reason === 'permission_missing' ? 'permission_missing'
+        : e.reason === 'missing_value' ? 'key_not_present'
+        : e.reason === 'unsupported_value' ? 'unsupported_value'
+        : 'not_allowlisted';
+    }
+    if (Object.keys(refused).length > 0) {
+      setRestoreStatuses((prev) => ({ ...prev, ...refused }));
+    }
+
+    if (plan.writes.length > 0 && companion.available) {
+      // ====== COMPANION PATH — transport only ======
+      const marking: Record<string, RestoreStatus> = {};
+      for (const w of plan.writes) marking[w.diffKey] = 'restoring';
+      setRestoreStatuses((prev) => ({ ...prev, ...marking }));
+
+      const settingsToWrite: SettingToWrite[] = plan.writes.map((w) => ({
+        namespace: w.namespace,
+        key: w.key,
+        value: w.value,
+      }));
 
       const result = await writeSettingsViaCompanion(settingsToWrite);
 
-      // Map results back to diff keys with rich status
       const resultStatuses: Record<string, RestoreStatus> = {};
-      for (let i = 0; i < allToRestore.length; i++) {
-        const diff = allToRestore[i];
-        const writeResult = result.results[i];
-        if (writeResult?.success) {
-          resultStatuses[diff.key] = 'success';
-        } else if (writeResult?.status === 'not_applicable') {
-          resultStatuses[diff.key] = 'not_applicable';
-        } else if (writeResult?.status === 'overridden') {
-          resultStatuses[diff.key] = 'overridden';
-        } else {
-          resultStatuses[diff.key] = 'failed';
-        }
+      for (let i = 0; i < plan.writes.length; i++) {
+        const w = plan.writes[i];
+        const r = result.results[i];
+        // 'not_applicable' means the row did not exist before the write and
+        // still does not. That is a key that is not present, not a success.
+        resultStatuses[w.diffKey] = r?.success
+          ? 'write_succeeded'
+          : r?.status === 'not_applicable'
+          ? 'key_not_present'
+          : 'write_failed';
       }
       setRestoreStatuses((prev) => ({ ...prev, ...resultStatuses }));
     } else {
-      // ====== LOCAL PATH (no companion) ======
-      // Only restore settings we have local permission to write
-      const canWrite = (d: SettingDiff) => {
-        if (d.category === 'system' && !hasWriteSettings) return false;
-        if (d.category === 'secure' && !hasSecureSettings) return false;
-        if (d.category === 'global' && !hasSecureSettings) return false;
-        return true;
-      };
-
-      const localToRestore = allToRestore.filter(canWrite);
-
-      for (const diff of localToRestore) {
-        await handleRestoreSetting(diff);
+      // ====== NATIVE PATH ======
+      for (const w of plan.writes) {
+        setRestoreStatuses((prev) => ({ ...prev, [w.diffKey]: 'restoring' }));
+        const status = await executeWrite(w);
+        setRestoreStatuses((prev) => ({ ...prev, [w.diffKey]: status }));
       }
     }
 
@@ -355,28 +387,25 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
     );
   }
 
-  // Derive display groups from the memoized allRestorableDiffs
-  const allAutoDiffs = comparison.settings.filter((d) => d.restoreType === 'auto' && !isJunkSetting(d.key));
+  // Display groups. The `secureAutoDiffs` promotion is GONE: guided means
+  // guided, and no permission state can turn a guided difference into a
+  // write. Everything automatic is already allowlisted.
+  const autoDiffs = allRestorableDiffs;
   const guidedDiffs = comparison.settings.filter((d) => d.restoreType === 'guided' && !isJunkSetting(d.key));
-  const secureAutoDiffs = (companion.available || hasSecureSettings)
-    ? guidedDiffs.filter((d) => d.category !== 'defaults')
-    : [];
-  const autoDiffs = companion.available
-    ? allAutoDiffs
-    : allAutoDiffs.filter((d) => {
-        if (d.category === 'system' && hasWriteSettings === false) return false;
-        if (d.category === 'secure' && !hasSecureSettings) return false;
-        if (d.category === 'global' && !hasSecureSettings) return false;
-        return true;
-      });
-  const blockedDiffs = companion.available ? [] : allAutoDiffs.filter((d) => !autoDiffs.includes(d));
+  const blockedDiffs = autoDiffs.filter((d) => {
+    if (companion.available) return false;
+    if (d.category === 'system') return hasWriteSettings === false;
+    return !hasSecureSettings;
+  });
   const blockedByPermission = blockedDiffs.length;
 
   // Count stats — filter out already-attempted items (any terminal status)
-  const isTerminal = (s: RestoreStatus) => s === 'success' || s === 'failed' || s === 'not_applicable' || s === 'overridden';
-  const successCount = Object.values(restoreStatuses).filter((s) => s === 'success').length;
-  const failedCount = Object.values(restoreStatuses).filter((s) => s === 'failed' || s === 'overridden').length;
-  const notApplicableCount = Object.values(restoreStatuses).filter((s) => s === 'not_applicable').length;
+  const isTerminal = isTerminalStatus;
+  const successCount = Object.values(restoreStatuses).filter((s) => s === 'write_succeeded').length;
+  const failedCount = Object.values(restoreStatuses).filter((s) => s === 'write_failed').length;
+  const notApplicableCount = Object.values(restoreStatuses).filter(
+    (s) => s === 'key_not_present' || s === 'not_allowlisted' || s === 'unsupported_value',
+  ).length;
   const pendingRestorableCount = allRestorableDiffs.filter(
     (d) => checkedSettings[d.key] && !isTerminal(restoreStatuses[d.key])
   ).length;
@@ -386,24 +415,13 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
   const autoGrouped = groupDiffsByGroup(
     autoDiffs.filter((d) => !isAttempted(d))
   );
-  const secureGrouped = groupDiffsByGroup(
-    secureAutoDiffs.filter((d) => !isAttempted(d))
-  );
-  const guidedGrouped = groupDiffsByGroup(
-    ((companion.available || hasSecureSettings)
-      ? guidedDiffs.filter((d) => d.category === 'defaults')
-      : guidedDiffs
-    ).filter((d) => !isAttempted(d))
-  );
+  const guidedGrouped = groupDiffsByGroup(guidedDiffs.filter((d) => !isAttempted(d)));
+  const notRestorableGrouped = groupDiffsByGroup(notRestorableDiffs);
   const visibleApps = comparison.apps; // Apps don't auto-remove
 
   // Remaining items that haven't been attempted
   const remainingAutoCount = autoDiffs.filter((d) => !isAttempted(d)).length;
-  const remainingSecureCount = secureAutoDiffs.filter((d) => !isAttempted(d)).length;
-  const remainingGuidedCount = ((companion.available || hasSecureSettings)
-    ? guidedDiffs.filter((d) => d.category === 'defaults')
-    : guidedDiffs
-  ).filter((d) => !isAttempted(d)).length;
+  const remainingGuidedCount = guidedDiffs.filter((d) => !isAttempted(d)).length;
 
   const isCrossDevice = importedProfile && currentProfile &&
     importedProfile.device.model !== currentProfile.device.model;
@@ -627,25 +645,35 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
         </CollapsibleSectionCard>
       )}
 
-      {/* Unlocked Restore groups */}
-      {(companion.available || hasSecureSettings) && remainingSecureCount > 0 && (
+      {/* Saved, not restorable */}
+      {/*
+        The "Unlocked Restore" section used to live here. It rendered
+        secureAutoDiffs -- every non-defaults GUIDED difference, promoted to
+        an automatic write the moment the companion connected or
+        WRITE_SECURE_SETTINGS was held. That promotion is how unknown keys
+        reached the write path, so the section is gone rather than rewritten.
+        What replaces it says the opposite thing: here is what we captured
+        and are NOT going to write.
+      */}
+      {notRestorableGrouped.length > 0 && (
         <CollapsibleSectionCard
-          title={`Unlocked Restore (${remainingSecureCount})`}
-          collapsed={sectionCollapsed['secure'] ?? false}
-          onToggle={() => toggleSection('secure')}
+          title={`Saved, not restorable (${notRestorableDiffs.length})`}
+          collapsed={sectionCollapsed['info'] ?? true}
+          onToggle={() => toggleSection('info')}
         >
           <Text style={styles.sectionDescription}>
-            {companion.available
-              ? 'Companion will apply these via USB. Uncheck any you want to skip.'
-              : 'Desktop companion unlocked these. Uncheck any you want to skip.'}
+            These differences are kept in your profile and shown here, but this
+            app will not write them. Either the setting is not on the reviewed
+            allowlist, or it is one we deliberately never change automatically.
+            Nothing here is claimed as restored.
           </Text>
-          {secureGrouped.map(({ group, diffs }) => (
+          {notRestorableGrouped.map(({ group, diffs }) => (
             <CollapsibleGroup
-              key={`secure-${group}`}
+              key={`info-${group}`}
               group={group}
               diffs={diffs}
-              expanded={expandedGroups[`secure-${group}`] ?? false}
-              onToggleExpand={() => toggleGroup(`secure-${group}`)}
+              expanded={expandedGroups[`info-${group}`] ?? false}
+              onToggleExpand={() => toggleGroup(`info-${group}`)}
               checkedSettings={checkedSettings}
               restoreStatuses={restoreStatuses}
               onToggleSetting={toggleSetting}
@@ -664,14 +692,13 @@ export function RestoreScreen({ comparison, currentProfile, importedProfile, onS
         >
           {wizardActive ? (
             <GuidedWizard
-              diffs={((companion.available || hasSecureSettings)
-                ? guidedDiffs.filter((d) => d.category === 'defaults')
-                : guidedDiffs
-              ).filter((d) => restoreStatuses[d.key] !== 'success')}
+              diffs={guidedDiffs.filter((d) => restoreStatuses[d.key] !== 'write_succeeded')}
               isSamsung={isSamsung}
               onComplete={() => setWizardActive(false)}
               onSettingVerified={(key) => {
-                setRestoreStatuses((prev) => ({ ...prev, [key]: 'success' }));
+                // The user changed it themselves in Settings and the wizard
+                // re-read it. That is a verified restoration, not a write.
+                setRestoreStatuses((prev) => ({ ...prev, [key]: 'write_succeeded' }));
               }}
             />
           ) : (
@@ -747,7 +774,7 @@ function RestoredList({
   restoreStatuses: Record<string, RestoreStatus>;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const restored = diffs.filter((d) => restoreStatuses[d.key] === 'success');
+  const restored = diffs.filter((d) => restoreStatuses[d.key] === 'write_succeeded');
   if (restored.length === 0) return null;
 
   return (
@@ -779,7 +806,10 @@ function SkippedList({
   restoreStatuses: Record<string, RestoreStatus>;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const skipped = diffs.filter((d) => restoreStatuses[d.key] === 'not_applicable');
+  const skipped = diffs.filter((d) => {
+    const s = restoreStatuses[d.key];
+    return s === 'key_not_present' || s === 'not_allowlisted' || s === 'unsupported_value';
+  });
   if (skipped.length === 0) return null;
 
   return (
@@ -818,7 +848,10 @@ function FailedList({
   hasSecureSettings: boolean | null;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const failed = diffs.filter((d) => restoreStatuses[d.key] === 'failed' || restoreStatuses[d.key] === 'overridden');
+  const failed = diffs.filter((d) => {
+    const s = restoreStatuses[d.key];
+    return s === 'write_failed' || s === 'permission_missing';
+  });
   if (failed.length === 0) return null;
 
   return (
@@ -940,7 +973,7 @@ function CollapsibleGroup({
 }) {
   const [itemsShown, setItemsShown] = useState(30);
   const checkedCount = diffs.filter((d) => checkedSettings[d.key]).length;
-  const failedCount = diffs.filter((d) => restoreStatuses[d.key] === 'failed').length;
+  const failedCount = diffs.filter((d) => restoreStatuses[d.key] === 'write_failed').length;
 
   return (
     <View style={styles.groupContainer}>
@@ -1010,7 +1043,7 @@ function RestoreItem({
   guided?: boolean;
 }) {
   const statusColor =
-    status === 'failed' ? '#f87171' : status === 'restoring' ? '#e6b800' : '#6b7fa0';
+    status === 'write_failed' ? '#f87171' : status === 'restoring' ? '#e6b800' : '#6b7fa0';
 
   return (
     <View style={[styles.restoreItem, !checked && styles.restoreItemUnchecked]}>
@@ -1019,7 +1052,7 @@ function RestoreItem({
         <Text style={[styles.restoreLabel, !checked && styles.labelDimmed]} numberOfLines={1}>
           {diff.label}
         </Text>
-        {status === 'failed' && (
+        {status === 'write_failed' && (
           <Text style={[styles.statusIcon, { color: statusColor }]}>✗</Text>
         )}
         {status === 'restoring' && (

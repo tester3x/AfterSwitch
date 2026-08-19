@@ -1,7 +1,11 @@
 /**
  * Dynamic profile comparison engine.
  * Iterates ALL settings keys from both profiles and diffs them.
- * Uses the settings registry for metadata (labels, groups, restore types).
+ *
+ * The registry supplies LABELS AND FORMATTING ONLY. Restorability comes from
+ * `restoreAllowlist`, and from nothing else. `getSettingMeta` has a fallback
+ * that returns `restoreType: 'auto'` for any unrecognised system key; reading
+ * restorability from it made an unknown key MORE permissive than a known one.
  */
 
 import type {
@@ -13,6 +17,7 @@ import type {
   AppDefault,
 } from '../types/profile';
 import { getSettingMeta, GROUP_ORDER } from '../data/settingsRegistry';
+import { lookupSpec, tierToRestoreType } from '../data/restoreAllowlist';
 
 /**
  * Internal system settings that are noise — timestamps, internal state,
@@ -91,8 +96,22 @@ export function compareProfiles(
       const fullKey = `${ns}.${key}`;
       const meta = getSettingMeta(fullKey);
 
-      // Skip samsungOnly settings when target isn't Samsung
+      // Skip samsungOnly settings when target isn't Samsung.
+      // (Currently unreachable: only the 22 unreachable `samsung.*` registry
+      // entries set this flag, and no code path can produce a `samsung.`
+      // lookup key. Kept so that reviving those entries under their real
+      // namespaces re-activates the guard rather than needing it rewritten.)
       if (meta.samsungOnly && !targetIsSamsung) continue;
+
+      // RESTORABILITY COMES FROM THE ALLOWLIST, NOT FROM THE REGISTRY.
+      //
+      // A target-only difference — the key exists on this device but the
+      // imported profile has no row for it — is read-only whatever the
+      // allowlist says. There is nothing to restore it TO, so offering it as
+      // automatic or guided would be offering to apply a value we do not
+      // have. The old code turned exactly this case into a write of the
+      // formatted display string.
+      const spec = oldVal == null ? null : lookupSpec(ns, key);
 
       settingDiffs.push({
         key: fullKey,
@@ -105,9 +124,14 @@ export function compareProfiles(
         newValue: meta.valueFormatter
           ? meta.valueFormatter(newVal || '')
           : (newVal || '(not set)'),
-        rawOldValue: oldVal || '',
-        rawNewValue: newVal || '',
-        restoreType: meta.restoreType,
+        // ABSENCE IS null, NOT ''. An empty string is falsy, and the old
+        // write path read `rawOldValue || oldValue` — so a source profile
+        // with no row for this key wrote the FORMATTED display string
+        // instead, which for an uncurated key is the literal '(not set)'.
+        // null cannot be mistaken for a value.
+        rawOldValue: oldVal == null ? null : oldVal,
+        rawNewValue: newVal == null ? null : newVal,
+        restoreType: tierToRestoreType(spec),
         settingsIntent: meta.settingsIntent,
         description: meta.description,
         priority: meta.priority,
