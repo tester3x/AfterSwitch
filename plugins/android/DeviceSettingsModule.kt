@@ -345,7 +345,19 @@ class DeviceSettingsModule(private val reactContext: ReactApplicationContext) :
      */
     private val RESTORE_ALLOWLIST = setOf(
         "secure.long_press_timeout",
-        "global.window_animation_scale"
+        "global.window_animation_scale",
+        "secure.show_ime_with_hard_keyboard",
+        "system.sound_effects_enabled",
+        "system.haptic_feedback_enabled",
+        "system.accelerometer_rotation",
+        "system.screen_brightness_mode",
+        "system.screen_off_timeout",
+        "system.volume_music",
+        "system.volume_notification",
+        "system.volume_ring",
+        "system.volume_alarm",
+        "global.transition_animation_scale",
+        "system.font_scale"
     )
 
     private fun isAllowlisted(namespace: String, key: String): Boolean =

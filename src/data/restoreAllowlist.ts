@@ -114,23 +114,117 @@ export const ALL_SPECS: readonly RestoreSpec[] = [
     rationale: 'Animation speed multiplier. Cosmetic, instantly reversible. Changed, verified, restored and re-verified on device.',
   },
 
-  // ── guided: evidence pending. Same-value success is NOT enough. ──────────
+  // ── auto: proven by the system-write matrix, S24 / Android 16 ───────────
+  //
+  // Ten of these came from matrix build 56a2b326, read back by machine from
+  // the live diagnostic UI. Two came from build ef0a3809 and rest on a
+  // WEAKER evidence class: the operator observed both success messages
+  // directly, but the rendered result was then erased by the font_scale
+  // activity recreation, so no machine read-back exists. They are marked
+  // below. The distinction is recorded because it is real, not because it
+  // changes the tier.
+  //
+  // All ten system.* keys additionally exercise WRITE_SETTINGS, which is an
+  // APPOP and a different grant from WRITE_SECURE_SETTINGS. Nothing about
+  // them was established by the earlier secure/global run.
   {
     namespace: 'secure',
     key: 'show_ime_with_hard_keyboard',
-    tier: 'guided',
+    tier: 'auto',
     domain: { kind: 'enum', values: ['0', '1'] },
-    evidence: 'same_value_only',
-    rationale: 'A same-value write was accepted, which a provider may do trivially for a no-op. Needs a changed-value round trip before promotion.',
+    evidence: 'round_trip_proven',
+    rationale: 'Changed, verified by fresh read, restored and re-verified on device (matrix key 10, 56a2b326). Supersedes the earlier same-value-only result.',
+  },
+  {
+    namespace: 'system',
+    key: 'sound_effects_enabled',
+    tier: 'auto',
+    domain: { kind: 'enum', values: ['0', '1'] },
+    evidence: 'round_trip_proven',
+    rationale: 'Changed, verified, restored and re-verified on device (matrix key 1, 56a2b326), under the WRITE_SETTINGS appop.',
+  },
+  {
+    namespace: 'system',
+    key: 'haptic_feedback_enabled',
+    tier: 'auto',
+    domain: { kind: 'enum', values: ['0', '1'] },
+    evidence: 'round_trip_proven',
+    rationale: 'Changed, verified, restored and re-verified on device (matrix key 2, 56a2b326), under the WRITE_SETTINGS appop.',
+  },
+  {
+    namespace: 'system',
+    key: 'accelerometer_rotation',
+    tier: 'auto',
+    domain: { kind: 'enum', values: ['0', '1'] },
+    evidence: 'round_trip_proven',
+    rationale: 'Changed, verified, restored and re-verified on device (matrix key 3, 56a2b326), under the WRITE_SETTINGS appop.',
+  },
+  {
+    namespace: 'system',
+    key: 'screen_brightness_mode',
+    tier: 'auto',
+    domain: { kind: 'enum', values: ['0', '1'] },
+    evidence: 'round_trip_proven',
+    rationale: 'Changed, verified, restored and re-verified on device (matrix key 4, 56a2b326), under the WRITE_SETTINGS appop.',
+  },
+  {
+    namespace: 'system',
+    key: 'screen_off_timeout',
+    tier: 'auto',
+    domain: { kind: 'int', min: 15000, max: 1800000 },
+    evidence: 'round_trip_proven',
+    rationale: 'Changed, verified, restored and re-verified on device (matrix key 5, 56a2b326), under the WRITE_SETTINGS appop.',
+  },
+  {
+    namespace: 'system',
+    key: 'volume_music',
+    tier: 'auto',
+    domain: { kind: 'int', min: 0, max: 30 },
+    evidence: 'round_trip_proven',
+    rationale: 'Changed, verified, restored and re-verified on device (matrix key 6, 56a2b326). NOTE: volume indices are stream- and device-specific, so the same number is not the same loudness on different hardware. The write mechanism is proven; cross-device meaningfulness is not.',
+  },
+  {
+    namespace: 'system',
+    key: 'volume_notification',
+    tier: 'auto',
+    domain: { kind: 'int', min: 0, max: 30 },
+    evidence: 'round_trip_proven',
+    rationale: 'Changed, verified, restored and re-verified on device (matrix key 7, 56a2b326). Same stream-index caveat as volume_music.',
+  },
+  {
+    namespace: 'system',
+    key: 'volume_ring',
+    tier: 'auto',
+    domain: { kind: 'int', min: 0, max: 30 },
+    evidence: 'round_trip_proven',
+    rationale: 'Changed, verified, restored and re-verified on device (matrix key 8, 56a2b326). Same stream-index caveat as volume_music.',
+  },
+  {
+    namespace: 'system',
+    key: 'volume_alarm',
+    tier: 'auto',
+    domain: { kind: 'int', min: 0, max: 30 },
+    evidence: 'round_trip_proven',
+    rationale: 'Changed, verified, restored and re-verified on device (matrix key 9, 56a2b326). Same stream-index caveat as volume_music.',
   },
   {
     namespace: 'global',
     key: 'transition_animation_scale',
-    tier: 'guided',
+    tier: 'auto',
     domain: { kind: 'float', min: 0, max: 10 },
-    evidence: 'same_value_only',
-    rationale: 'Same-value only. Needs a changed-value round trip before promotion.',
+    evidence: 'round_trip_proven',
+    rationale: 'Changed, verified, restored and re-verified on device (matrix round 2, ef0a3809). OPERATOR-OBSERVED: the success message was read on screen, then erased by the font_scale activity recreation, so there is no machine read-back. Corroborated by a continuous-process gate at nextIndex=2 and a clear rollback.',
   },
+  {
+    namespace: 'system',
+    key: 'font_scale',
+    tier: 'auto',
+    domain: { kind: 'float', min: 0.5, max: 2 },
+    evidence: 'round_trip_proven',
+    rationale: 'Changed, verified, restored and re-verified on device (matrix round 2, ef0a3809). OPERATOR-OBSERVED, same caveat as transition_animation_scale. WRITING THIS KEY RECREATES THE ACTIVITY: it is a configuration change and the manifest configChanges mask does not cover fontScale, so restorePlan emits it LAST.',
+  },
+
+  // ── guided: evidence pending. Absence is not proof either way. ───────────
   {
     namespace: 'secure',
     key: 'spell_checker_enabled',
@@ -148,89 +242,10 @@ export const ALL_SPECS: readonly RestoreSpec[] = [
     rationale: 'No row existed on the tested device. Inconclusive either way.',
   },
 
-  // ── guided: System namespace. ZERO device evidence exists for any of it. ─
-  // These use WRITE_SETTINGS, a DIFFERENT permission from the one proven, so
-  // the S24 result says nothing about them. Benign appearance is not proof.
-  {
-    namespace: 'system',
-    key: 'screen_off_timeout',
-    tier: 'guided',
-    domain: { kind: 'int', min: 15000, max: 1800000 },
-    evidence: 'unproven',
-    rationale: 'WRITE_SETTINGS path is untested. No device evidence.',
-  },
-  {
-    namespace: 'system',
-    key: 'font_scale',
-    tier: 'guided',
-    domain: { kind: 'float', min: 0.5, max: 2 },
-    evidence: 'unproven',
-    rationale: 'WRITE_SETTINGS path is untested. No device evidence.',
-  },
-  {
-    namespace: 'system',
-    key: 'accelerometer_rotation',
-    tier: 'guided',
-    domain: { kind: 'enum', values: ['0', '1'] },
-    evidence: 'unproven',
-    rationale: 'WRITE_SETTINGS path is untested. No device evidence.',
-  },
-  {
-    namespace: 'system',
-    key: 'screen_brightness_mode',
-    tier: 'guided',
-    domain: { kind: 'enum', values: ['0', '1'] },
-    evidence: 'unproven',
-    rationale: 'WRITE_SETTINGS path is untested. No device evidence.',
-  },
-  {
-    namespace: 'system',
-    key: 'haptic_feedback_enabled',
-    tier: 'guided',
-    domain: { kind: 'enum', values: ['0', '1'] },
-    evidence: 'unproven',
-    rationale: 'WRITE_SETTINGS path is untested. No device evidence.',
-  },
-  {
-    namespace: 'system',
-    key: 'sound_effects_enabled',
-    tier: 'guided',
-    domain: { kind: 'enum', values: ['0', '1'] },
-    evidence: 'unproven',
-    rationale: 'WRITE_SETTINGS path is untested. No device evidence.',
-  },
-  {
-    namespace: 'system',
-    key: 'volume_ring',
-    tier: 'guided',
-    domain: { kind: 'int', min: 0, max: 30 },
-    evidence: 'unproven',
-    rationale: 'Volume indices are stream- and device-specific; the same number means different loudness on different hardware.',
-  },
-  {
-    namespace: 'system',
-    key: 'volume_notification',
-    tier: 'guided',
-    domain: { kind: 'int', min: 0, max: 30 },
-    evidence: 'unproven',
-    rationale: 'Volume indices are stream- and device-specific.',
-  },
-  {
-    namespace: 'system',
-    key: 'volume_alarm',
-    tier: 'guided',
-    domain: { kind: 'int', min: 0, max: 30 },
-    evidence: 'unproven',
-    rationale: 'Volume indices are stream- and device-specific.',
-  },
-  {
-    namespace: 'system',
-    key: 'volume_music',
-    tier: 'guided',
-    domain: { kind: 'int', min: 0, max: 30 },
-    evidence: 'unproven',
-    rationale: 'Volume indices are stream- and device-specific.',
-  },
+  // The ten guided system.* entries that used to sit here were PROMOTED to
+  // auto after the system-write matrix ran, and moved into the auto section
+  // above rather than duplicated. Nothing was deleted: every key they
+  // described is still listed, with its domain unchanged.
 
   // ── unsupported: dangerous categories. Never automatic, never written. ───
   {

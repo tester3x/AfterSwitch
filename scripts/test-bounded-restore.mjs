@@ -233,15 +233,45 @@ const writable = (d) => d && d.restoreType !== 'info';
   const specs = allowMod?.ALL_SPECS ?? null;
   check('allowlist: enumerable spec list is exported', Array.isArray(specs));
   if (Array.isArray(specs)) {
+    // The full automatic registry after the system-write matrix. Written out
+    // key by key rather than as a count, so adding one silently is a failure
+    // rather than an off-by-one nobody notices.
+    const AUTO_EXPECTED = [
+      'secure.long_press_timeout',
+      'global.window_animation_scale',
+      'secure.show_ime_with_hard_keyboard',
+      'system.sound_effects_enabled',
+      'system.haptic_feedback_enabled',
+      'system.accelerometer_rotation',
+      'system.screen_brightness_mode',
+      'system.screen_off_timeout',
+      'system.volume_music',
+      'system.volume_notification',
+      'system.volume_ring',
+      'system.volume_alarm',
+      'global.transition_animation_scale',
+      'system.font_scale',
+    ].sort();
     const auto = specs.filter((s) => s.tier === 'auto');
-    check('allowlist: exactly the two round-trip-proven keys are auto',
-      auto.length === 2 &&
-      auto.some((s) => s.namespace === 'secure' && s.key === 'long_press_timeout') &&
-      auto.some((s) => s.namespace === 'global' && s.key === 'window_animation_scale'),
-      auto.map((s) => `${s.namespace}.${s.key}`).join(', '));
+    const autoIds = auto.map((s) => `${s.namespace}.${s.key}`).sort();
+    check('allowlist: exactly 14 entries are automatic', auto.length === 14, String(auto.length));
+    check('allowlist: the automatic set is exactly the matrix-proven keys',
+      autoIds.join('|') === AUTO_EXPECTED.join('|'),
+      autoIds.filter((k) => !AUTO_EXPECTED.includes(k)).join(', ') || 'missing: ' +
+        AUTO_EXPECTED.filter((k) => !autoIds.includes(k)).join(', '));
     check('allowlist: every auto entry is round_trip_proven',
       auto.every((s) => s.evidence === 'round_trip_proven'),
       auto.map((s) => `${s.namespace}.${s.key}:${s.evidence}`).join(', '));
+
+    // The two keys the matrix left genuinely unresolved stay non-automatic:
+    // both returned no row, and absence is not proof either way.
+    const stillGuided = ['secure.spell_checker_enabled', 'global.animator_duration_scale'];
+    check('allowlist: the two absent-row keys are NOT automatic',
+      stillGuided.every((k) => !autoIds.includes(k)),
+      stillGuided.filter((k) => autoIds.includes(k)).join(', '));
+    check('allowlist: the two absent-row keys are still listed, as guided',
+      stillGuided.every((k) => specs.some(
+        (s) => `${s.namespace}.${s.key}` === k && s.tier === 'guided' && s.evidence === 'absent')));
 
     const DANGEROUS = [
       'default_input_method', 'navigation_mode', 'enabled_accessibility_services',
@@ -303,14 +333,34 @@ const writable = (d) => d && d.restoreType !== 'info';
     );
     const plan = planMod.planRestore(rows, capability);
     const written = (plan.writes || []).map((w) => `${w.namespace}.${w.key}`).sort();
-    check('plan: only the two proven keys are planned for writing',
-      written.length === 2 &&
-      written[0] === 'global.window_animation_scale' &&
-      written[1] === 'secure.long_press_timeout',
+    check('plan: only allowlisted automatic keys are planned for writing',
+      written.length === 3 &&
+      written.join('|') === [
+        'global.window_animation_scale',
+        'secure.long_press_timeout',
+        'system.screen_off_timeout',
+      ].join('|'),
       written.join(', '));
     check('plan: every planned write carries the RAW source value',
-      (plan.writes || []).every((w) => w.value === '400' || w.value === '1.0'),
+      (plan.writes || []).every((w) => ['400', '1.0', '15000'].includes(w.value)),
       (plan.writes || []).map((w) => `${w.key}=${w.value}`).join(', '));
+
+    // system.font_scale writes a configuration change, which recreates the
+    // activity and unmounts the restore screen. Emitting it last bounds the
+    // lost status updates to that one key instead of everything after it.
+    {
+      const fsRows = diff(
+        { system: { font_scale: '1.0', screen_off_timeout: '15000' }, secure: { long_press_timeout: '400' } },
+        { system: { font_scale: '1.15', screen_off_timeout: '30000' }, secure: { long_press_timeout: '1000' } },
+      );
+      const fsPlan = planMod.planRestore(fsRows, capability);
+      const ids = (fsPlan.writes || []).map((w) => `${w.namespace}.${w.key}`);
+      check('plan: an activity-recreating key is emitted LAST',
+        ids.length === 3 && ids[ids.length - 1] === 'system.font_scale', ids.join(' -> '));
+      check('plan: ordering does not drop or duplicate any write',
+        new Set(ids).size === ids.length && ids.includes('secure.long_press_timeout') &&
+        ids.includes('system.screen_off_timeout'), ids.join(', '));
+    }
     check('plan: dangerous keys are excluded with a reason',
       (plan.excluded || []).some((e) => e.key === 'secure.default_input_method') &&
       (plan.excluded || []).some((e) => e.key === 'global.adb_enabled'));
@@ -318,6 +368,28 @@ const writable = (d) => d && d.restoreType !== 'info';
       (plan.excluded || []).filter((e) => e.reason === 'not_allowlisted').length >= 3);
     check('plan: without capability nothing is planned',
       (planMod.planRestore(rows, { system: false, secure: false, global: false }).writes || []).length === 0);
+
+    // WRITE_SETTINGS (an appop, for system.*) and WRITE_SECURE_SETTINGS (a
+    // runtime permission, for secure.*/global.*) are DIFFERENT grants. Holding
+    // one must never imply the other — the earlier experiment held only the
+    // second, which is why nothing about the ten system.* keys followed from
+    // it. Each gate is exercised alone here.
+    {
+      const sysOnly = planMod.planRestore(rows, { system: true, secure: false, global: false });
+      const sysIds = sysOnly.writes.map((w) => `${w.namespace}.${w.key}`);
+      check('capability: WRITE_SETTINGS alone permits system.* and nothing else',
+        sysIds.length > 0 && sysIds.every((k) => k.startsWith('system.')), sysIds.join(', '));
+      check('capability: secure/global are refused as permission_missing, not silently dropped',
+        sysOnly.excluded.some((e) => e.key === 'secure.long_press_timeout' && e.reason === 'permission_missing') &&
+        sysOnly.excluded.some((e) => e.key === 'global.window_animation_scale' && e.reason === 'permission_missing'));
+
+      const secOnly = planMod.planRestore(rows, { system: false, secure: true, global: true });
+      const secIds = secOnly.writes.map((w) => `${w.namespace}.${w.key}`);
+      check('capability: WRITE_SECURE_SETTINGS alone permits secure/global and nothing else',
+        secIds.length > 0 && secIds.every((k) => !k.startsWith('system.')), secIds.join(', '));
+      check('capability: system.* is refused as permission_missing under the secure grant',
+        secOnly.excluded.some((e) => e.key === 'system.screen_off_timeout' && e.reason === 'permission_missing'));
+    }
   } else {
     for (const n of [
       'only the two proven keys are planned for writing',

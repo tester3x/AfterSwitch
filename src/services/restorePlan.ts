@@ -125,7 +125,33 @@ export function planRestore(
     writes.push({ diffKey: diff.key, namespace: ns, key, value: validated.value });
   }
 
-  return { writes, excluded };
+  return { writes: orderWrites(writes), excluded };
+}
+
+/**
+ * Keys whose write is a CONFIGURATION CHANGE. Android destroys and recreates
+ * the foreground activity when one lands, which unmounts the restore screen
+ * mid-run: the remaining writes still execute natively, but every status
+ * update after that point is a setState on an unmounted component and is
+ * silently dropped. The user would watch the progress list go blank.
+ *
+ * This became a live concern the moment system.font_scale was promoted to
+ * auto — it was harmless while the key was guided, because the app never
+ * wrote it.
+ */
+const RECREATES_ACTIVITY: readonly string[] = ['system.font_scale'];
+
+/**
+ * Emit activity-recreating writes LAST, preserving relative order otherwise.
+ *
+ * This does not prevent the recreation; nothing can, short of not writing the
+ * key. It bounds the damage to the tail of the run, so at most the final
+ * write's own status is lost instead of every status after it.
+ */
+function orderWrites(writes: PlannedWrite[]): PlannedWrite[] {
+  const normal = writes.filter((w) => !RECREATES_ACTIVITY.includes(`${w.namespace}.${w.key}`));
+  const last = writes.filter((w) => RECREATES_ACTIVITY.includes(`${w.namespace}.${w.key}`));
+  return [...normal, ...last];
 }
 
 /** Count of differences this build would attempt, for the confirmation dialog. */
