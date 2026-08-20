@@ -17,6 +17,7 @@
     "scheme": "afterswitch",
     "android": {
       "package": "com.afterswitch.app",
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon-adaptive.png",
         "backgroundColor": "#0a0e1a"
