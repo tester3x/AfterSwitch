@@ -11,7 +11,7 @@ import { BrowseScreen } from './src/screens/BrowseScreen';
 import { ShareProfileModal } from './src/components/ShareProfileModal';
 import type { AppTab, ComparisonResult, DeviceProfile, ScanProgress } from './src/types/profile';
 import { buildProfile, NativeCaptureUnavailableError } from './src/services/profileBuilder';
-import { compareProfiles } from './src/services/profileCompare';
+import { applyFreshScan, compareSelectedProfiles } from './src/services/sameDeviceRestore';
 import { exportProfileJson, saveProfileLocally, importProfileFromUri } from './src/services/profileIO';
 import { saveProfileToCloud, loadLatestCloudProfile, loadCloudProfile } from './src/services/cloudProfiles';
 import { getProfileByShareCode } from './src/services/sharedProfiles';
@@ -181,17 +181,11 @@ export default function App() {
       .catch(() => setCloudHasProfile(false));
   }, [user, currentProfile]);
 
-  // Compare profiles whenever either changes
-  // Skip comparison when both profiles are from the same device (same device comparing to itself = noise)
+  // Compare by profile content. Same model + nickname is device identity,
+  // not setting equality — an earlier backup of this phone must still diff.
   const comparison: ComparisonResult | null = useMemo(() => {
     if (!currentProfile || !importedProfile) return null;
-    if (
-      currentProfile.device.model === importedProfile.device.model &&
-      currentProfile.device.nickname === importedProfile.device.nickname
-    ) {
-      return { settings: [], apps: [], summary: { totalDiffs: 0, autoRestoreCount: 0, guidedCount: 0, infoCount: 0, missingApps: 0 } };
-    }
-    return compareProfiles(currentProfile, importedProfile);
+    return compareSelectedProfiles(currentProfile, importedProfile);
   }, [currentProfile, importedProfile]);
 
   const handleScan = useCallback(async () => {
@@ -211,21 +205,14 @@ export default function App() {
       const profile = await buildProfile((progress) => {
         setScanProgress({ ...progress });
       });
-      setCurrentProfile(profile);
+      const { current } = applyFreshScan(importedProfile, profile);
+      setCurrentProfile(current);
       setProfileSource('local');
       setQuickCheck({ settingsMatch: true, checkedCount: 0, diffCount: 0 });
-      await AsyncStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(profile));
+      await AsyncStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(current));
 
-      // If imported profile is from the same device, sync it too so
-      // same-device comparison shows 0 diffs after a fresh scan
-      if (importedProfile && importedProfile.device.model === profile.device.model
-          && importedProfile.device.nickname === profile.device.nickname) {
-        setImportedProfile(profile);
-        await AsyncStorage.setItem(STORAGE_KEY_IMPORTED, JSON.stringify(profile));
-      }
-
-      // Save locally
-      const savedUri = saveProfileLocally(profile);
+      // Save locally. The imported restore baseline is not written here.
+      const savedUri = saveProfileLocally(current);
       const fileName = decodeURIComponent(savedUri.split('/').pop() || 'profile');
       setSavedFileName(fileName);
       setStatusMessage(`Saved: ${fileName}`);
